@@ -1,5 +1,6 @@
 import json
 from llm import get_llm
+from ..logger import log_node
 from ..state import MealPlannerState
 
 llm = get_llm()
@@ -48,6 +49,7 @@ Devuelve SOLO JSON:
 }}"""
 
 
+@log_node("format_output", is_llm=True)
 def run(state: MealPlannerState) -> dict:
     response = llm.invoke(PROMPT.format(
         menu=json.dumps(state["menu"], ensure_ascii=False),

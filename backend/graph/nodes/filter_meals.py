@@ -1,7 +1,9 @@
 from db.queries import get_all_meals
+from ..logger import log_node
 from ..state import MealPlannerState
 
 
+@log_node("filter_meals", is_llm=False)
 def run(state: MealPlannerState) -> dict:
     context = state.get("context") or {}
     gym_days = context.get("gym_days", [])

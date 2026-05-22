@@ -1,4 +1,5 @@
 from collections import defaultdict
+from ..logger import log_node
 from ..state import MealPlannerState
 
 CATEGORIES = {
@@ -18,6 +19,7 @@ def categorize(ingredient: str) -> str:
     return "other"
 
 
+@log_node("extract_ingredients", is_llm=False)
 def run(state: MealPlannerState) -> dict:
     menu = state["menu"]
     meals_db = {m["name"]: m for m in state["filtered_meals"]}

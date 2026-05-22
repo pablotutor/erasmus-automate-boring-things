@@ -1,6 +1,8 @@
+from ..logger import log_node
 from ..state import MealPlannerState
 
 
+@log_node("subtract_pantry", is_llm=False)
 def run(state: MealPlannerState) -> dict:
     pantry_names = {
         item["name"].lower()

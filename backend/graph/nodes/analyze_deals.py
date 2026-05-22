@@ -1,5 +1,6 @@
 import json
 from llm import get_llm
+from ..logger import log_node
 from ..state import MealPlannerState
 
 llm = get_llm()
@@ -31,6 +32,7 @@ Si no hay texto de ofertas para un supermercado, pon array vacío.
 Solo incluye en deals los supermercados para los que se proporcionó texto."""
 
 
+@log_node("analyze_deals", is_llm=True)
 def run(state: MealPlannerState) -> dict:
     deals_text = state.get("deals_text", {})
 

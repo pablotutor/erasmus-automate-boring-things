@@ -1,6 +1,7 @@
 import json
 from collections import Counter
 from llm import get_llm
+from ..logger import log_node
 from ..state import MealPlannerState
 
 llm = get_llm()
@@ -154,6 +155,7 @@ def _fix_home_days(menu: dict, travel_days: list, filtered_meals: list) -> dict:
     return menu
 
 
+@log_node("generate_menu", is_llm=True)
 def run(state: MealPlannerState) -> dict:
     meals_list = "\n".join([
         f"- [{m['meal_type']}] {m['name']} | ingredientes: {', '.join(m['ingredients'])} | tags: {', '.join(m['tags'])}"
