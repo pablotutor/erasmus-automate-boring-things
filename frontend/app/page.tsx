@@ -1,82 +1,71 @@
 "use client";
 
 import { useState } from "react";
-import GenerateForm from "@/components/GenerateForm";
-import PantryStep from "@/components/PantryStep";
-import ResultDisplay from "@/components/ResultDisplay";
-import DealsUpload from "@/components/DealsUpload";
+import MisPlatos from "@/components/MisPlatos";
+import Ofertas from "@/components/Ofertas";
+import Agente from "@/components/Agente";
 
-type Step = "form" | "pantry" | "result";
+const TABS = [
+  { id: "platos",  label: "Mis platos" },
+  { id: "ofertas", label: "Ofertas"    },
+  { id: "agente",  label: "Agente"     },
+] as const;
+
+type TabId = typeof TABS[number]["id"];
 
 export default function Home() {
-  const [step, setStep] = useState<Step>("form");
-  const [threadId, setThreadId] = useState("");
-  const [question, setQuestion] = useState("");
-  const [result, setResult] = useState<unknown>(null);
-
-  function handleStarted(tid: string, q: string) {
-    setThreadId(tid);
-    setQuestion(q);
-    setStep("pantry");
-  }
-
-  function handleResult(r: unknown) {
-    setResult(r);
-    setStep("result");
-  }
-
-  function reset() {
-    setStep("form");
-    setThreadId("");
-    setResult(null);
-  }
+  const [tab, setTab] = useState<TabId>("platos");
 
   return (
-    <main className="max-w-4xl mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-bold">Meal Planner</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Columna principal */}
-        <div className="md:col-span-2 bg-white border rounded-lg p-6 space-y-4">
-          {step === "form" && (
-            <GenerateForm onStarted={handleStarted} />
-          )}
-
-          {step === "pantry" && (
-            <PantryStep
-              threadId={threadId}
-              question={question}
-              onResult={handleResult}
-            />
-          )}
-
-          {step === "result" && (
-            <>
-              <ResultDisplay result={result} />
-              <button
-                onClick={reset}
-                className="text-sm text-blue-600 underline"
-              >
-                Generar otro menú
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Sidebar: ofertas */}
-        <div className="space-y-4">
-          <DealsUpload />
-          <div className="border rounded-lg p-4 bg-white text-xs text-gray-500 space-y-1">
-            <p className="font-semibold text-gray-700">Instrucciones</p>
-            <ol className="list-decimal list-inside space-y-1">
-              <li>Sube los textos de los folletos (opcional)</li>
-              <li>Escribe el contexto de la semana</li>
-              <li>Responde qué tienes en casa</li>
-              <li>Espera el resultado (~1-2 min con Ollama)</li>
-            </ol>
+    <div style={{ minHeight: "100vh" }}>
+      {/* Header */}
+      <header style={{
+        background: "#fff",
+        borderBottom: "1px solid var(--border)",
+        position: "sticky", top: 0, zIndex: 200,
+      }}>
+        <div style={{
+          maxWidth: 1200, margin: "0 auto",
+          padding: "0 28px", height: 54,
+          display: "flex", alignItems: "center", gap: 36,
+        }}>
+          <div style={{
+            fontFamily: "'DM Serif Display', serif",
+            fontSize: 20, color: "var(--text)",
+            letterSpacing: "-0.01em", flexShrink: 0,
+          }}>
+            Erasmus{" "}
+            <span style={{ color: "var(--accent)" }}>✦</span>
           </div>
+
+          <nav style={{ display: "flex", height: "100%" }}>
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                style={{
+                  height: "100%", padding: "0 18px",
+                  border: "none", background: "none", cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: tab === t.id ? 600 : 400,
+                  color: tab === t.id ? "var(--text)" : "var(--text-muted)",
+                  borderBottom: tab === t.id
+                    ? "2px solid var(--accent)"
+                    : "2px solid transparent",
+                  transition: "color 0.15s, border-color 0.15s",
+                }}
+              >{t.label}</button>
+            ))}
+          </nav>
         </div>
-      </div>
-    </main>
+      </header>
+
+      {/* Content */}
+      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 28px" }}>
+        {tab === "platos"  && <MisPlatos />}
+        {tab === "ofertas" && <Ofertas   />}
+        {tab === "agente"  && <Agente    />}
+      </main>
+    </div>
   );
 }

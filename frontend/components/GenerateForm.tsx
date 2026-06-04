@@ -70,7 +70,7 @@ export default function GenerateForm({ onStarted }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   // Un día no puede ser deporte y viaje a la vez
-  const sportDays = [...new Set([...calisteniaDay, ...runningDays, ...footballDays])];
+  const sportDays = Array.from(new Set([...calisteniaDay, ...runningDays, ...footballDays]));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

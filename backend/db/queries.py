@@ -20,13 +20,49 @@ def create_meal(data: dict) -> dict:
     with engine.connect() as conn:
         result = conn.execute(
             text(
-                "INSERT INTO meals (name, meal_type, ingredients, tags, prep_time) "
-                "VALUES (:name, :meal_type, :ingredients, :tags, :prep_time) RETURNING *"
+                "INSERT INTO meals (name, meal_type, ingredients, tags, prep_time, description, image_url) "
+                "VALUES (:name, :meal_type, :ingredients, :tags, :prep_time, :description, :image_url) RETURNING *"
             ),
-            data,
+            {
+                "name":        data["name"],
+                "meal_type":   data["meal_type"],
+                "ingredients": data.get("ingredients", []),
+                "tags":        data.get("tags", []),
+                "prep_time":   data.get("prep_time"),
+                "description": data.get("description"),
+                "image_url":   data.get("image_url"),
+            },
         )
         conn.commit()
         return dict(result.fetchone()._mapping)
+
+
+def update_meal(meal_id: int, data: dict) -> dict:
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                "UPDATE meals SET "
+                "name = :name, meal_type = :meal_type, ingredients = :ingredients, "
+                "tags = :tags, prep_time = :prep_time, description = :description, "
+                "image_url = :image_url "
+                "WHERE id = :id RETURNING *"
+            ),
+            {
+                "id":          meal_id,
+                "name":        data["name"],
+                "meal_type":   data["meal_type"],
+                "ingredients": data.get("ingredients", []),
+                "tags":        data.get("tags", []),
+                "prep_time":   data.get("prep_time"),
+                "description": data.get("description"),
+                "image_url":   data.get("image_url"),
+            },
+        )
+        conn.commit()
+        row = result.fetchone()
+        if row is None:
+            raise ValueError(f"Meal {meal_id} not found")
+        return dict(row._mapping)
 
 
 def delete_meal(meal_id: int) -> None:

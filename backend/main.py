@@ -1,9 +1,13 @@
 import uuid
+import os
+import shutil
 from datetime import date
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 import pdfplumber
 import io
@@ -13,15 +17,20 @@ from scraper import scrape, SUPERMARKET_URLS
 from graph.graph import graph
 from graph.logger import setup_logging, set_thread_id
 from db.queries import (
-    get_all_meals, create_meal, delete_meal,
+    get_all_meals, create_meal, update_meal, delete_meal,
     get_pantry, update_pantry,
     save_deals, get_deals, clear_deals,
     save_menu,
     get_node_logs,
 )
 
+UPLOADS_DIR = Path(__file__).parent / "static" / "uploads" / "meals"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
 app = FastAPI(title="Meal Planner API")
 setup_logging()
+
+app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,6 +83,17 @@ class MealCreate(BaseModel):
     ingredients: list[str]
     tags: list[str]
     prep_time: Optional[int] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+
+class MealUpdate(BaseModel):
+    name: Optional[str] = None
+    meal_type: Optional[str] = None
+    ingredients: Optional[list[str]] = None
+    tags: Optional[list[str]] = None
+    prep_time: Optional[int] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 # ── Graph endpoints ──────────────────────────────────────────────────────────
@@ -198,6 +218,31 @@ async def list_meals(meal_type: Optional[str] = None):
 @app.post("/api/meals")
 async def add_meal(meal: MealCreate):
     return create_meal(meal.model_dump())
+
+
+@app.put("/api/meals/{meal_id}")
+async def edit_meal(meal_id: int, meal: MealUpdate):
+    existing = next((m for m in get_all_meals() if m["id"] == meal_id), None)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Meal not found")
+    merged = {**existing, **{k: v for k, v in meal.model_dump().items() if v is not None}}
+    return update_meal(meal_id, merged)
+
+
+@app.post("/api/meals/{meal_id}/image")
+async def upload_meal_image(meal_id: int, file: UploadFile = File(...)):
+    existing = next((m for m in get_all_meals() if m["id"] == meal_id), None)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Meal not found")
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        raise HTTPException(status_code=400, detail="Formato de imagen no soportado.")
+    filename = f"{meal_id}{ext}"
+    dest = UPLOADS_DIR / filename
+    content = await file.read()
+    dest.write_bytes(content)
+    image_url = f"/static/uploads/meals/{filename}"
+    return update_meal(meal_id, {**existing, "image_url": image_url})
 
 
 @app.delete("/api/meals/{meal_id}")
