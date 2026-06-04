@@ -203,6 +203,8 @@ function MealFormModal({ initial, onClose, onSave }: {
   const [imagePreview, setImagePreview] = useState<string | null>(
     initial?.image_url ? `${BASE}${initial.image_url}` : null
   );
+  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(initial?.image_url ?? null);
+  const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -217,7 +219,33 @@ function MealFormModal({ initial, onClose, onSave }: {
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     setImageFile(file);
+    setGeneratedImageUrl(null);
     if (file) setImagePreview(URL.createObjectURL(file));
+  }
+
+  async function handleGenerateImage() {
+    if (!form.name.trim()) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const res = await fetch(`${BASE}/api/meals/generate-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          ingredients: form.ingredients.split(",").map(s => s.trim()).filter(Boolean),
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { image_url } = await res.json();
+      setImagePreview(`${BASE}${image_url}`);
+      setGeneratedImageUrl(image_url);
+      setImageFile(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -233,7 +261,7 @@ function MealFormModal({ initial, onClose, onSave }: {
       tags:        form.tags,
       prep_time:   parseInt(form.prep_time) || null,
       description: form.description.trim() || null,
-      image_url:   initial?.image_url ?? null,
+      image_url:   generatedImageUrl ?? initial?.image_url ?? null,
     };
 
     try {
@@ -325,6 +353,19 @@ function MealFormModal({ initial, onClose, onSave }: {
               )}
               <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageChange} />
             </label>
+            <button
+              type="button"
+              onClick={handleGenerateImage}
+              disabled={!form.name.trim() || generating}
+              style={{
+                marginTop: 8, width: "100%", padding: "8px 0", borderRadius: 6,
+                border: "1px solid var(--border)", background: "#FAFAF7",
+                color: "#78716C", fontSize: 13, cursor: (!form.name.trim() || generating) ? "default" : "pointer",
+                opacity: (!form.name.trim() || generating) ? 0.5 : 1,
+              }}
+            >
+              {generating ? "Generando..." : "✨ Generar con IA"}
+            </button>
           </div>
 
           <div>

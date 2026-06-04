@@ -5,6 +5,8 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+from huggingface_hub import InferenceClient
+
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -94,6 +96,10 @@ class MealUpdate(BaseModel):
     prep_time: Optional[int] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
+
+class GenerateImageRequest(BaseModel):
+    name: str
+    ingredients: list[str] = []
 
 
 # ── Graph endpoints ──────────────────────────────────────────────────────────
@@ -243,6 +249,33 @@ async def upload_meal_image(meal_id: int, file: UploadFile = File(...)):
     dest.write_bytes(content)
     image_url = f"/static/uploads/meals/{filename}"
     return update_meal(meal_id, {**existing, "image_url": image_url})
+
+
+@app.post("/api/meals/generate-image")
+async def generate_meal_image(req: GenerateImageRequest):
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="HF_TOKEN no está configurado en el servidor.")
+
+    ingredients_preview = ", ".join(req.ingredients[:4]) if req.ingredients else ""
+    prompt = (
+        f"professional food photography of {req.name}"
+        + (f", made with {ingredients_preview}" if ingredients_preview else "")
+        + ", appetizing, natural light, top-down view, clean background, 4k"
+    )
+
+    try:
+        client = InferenceClient(token=token)
+        image = client.text_to_image(prompt, model="black-forest-labs/FLUX.1-schnell")
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=502, detail=f"Error al generar imagen: {e}")
+
+    filename = f"gen_{uuid.uuid4().hex[:8]}.png"
+    dest = UPLOADS_DIR / filename
+    image.save(dest)
+
+    return {"image_url": f"/static/uploads/meals/{filename}"}
 
 
 @app.delete("/api/meals/{meal_id}")
