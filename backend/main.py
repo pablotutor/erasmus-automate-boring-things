@@ -1,7 +1,7 @@
 import uuid
 import os
 import shutil
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -18,11 +18,12 @@ from scraper import scrape, SUPERMARKET_URLS
 
 from graph.graph import graph
 from graph.logger import setup_logging, set_thread_id
+from llm import get_llm
 from db.queries import (
     get_all_meals, create_meal, update_meal, delete_meal,
     get_pantry, update_pantry,
     save_deals, get_deals, clear_deals,
-    save_menu,
+    save_menu, get_current_week_menu, get_next_week_menu,
     get_node_logs,
 )
 
@@ -53,6 +54,7 @@ class GenerateRequest(BaseModel):
     football_days: list[str] = Field(default=[], description="Días de fútbol")
     travel_days: list[str] = Field(default=[], description="Días fuera de casa")
     notes: Optional[str] = Field(default=None, max_length=300, description="Notas adicionales")
+    week_target: str = Field(default="current", description="'current' o 'next'")
 
     @field_validator("calistenia_days", "running_days", "football_days", "travel_days")
     @classmethod
@@ -101,6 +103,11 @@ class GenerateImageRequest(BaseModel):
     name: str
     ingredients: list[str] = []
 
+class AdjustRequest(BaseModel):
+    menu: dict
+    shopping_list: dict = {}
+    change_request: str = Field(max_length=500)
+
 
 # ── Graph endpoints ──────────────────────────────────────────────────────────
 
@@ -112,6 +119,10 @@ async def start_generation(req: GenerateRequest):
     set_thread_id(thread_id)
 
     gym_days = list(set(req.calistenia_days + req.running_days + req.football_days))
+
+    today = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+    week_start = this_monday if req.week_target == "current" else this_monday + timedelta(days=7)
 
     initial_state = {
         "raw_input": req.notes or "",
@@ -125,6 +136,7 @@ async def start_generation(req: GenerateRequest):
             "notes": req.notes or "",
         },
         "deals_text": get_deals(),
+        "week_target": req.week_target,
     }
 
     await graph.ainvoke(initial_state, config)
@@ -151,6 +163,11 @@ async def resume_generation(req: PantryResponse):
 
     final_output = result.get("final_output", {})
 
+    today = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+    week_target = result.get("week_target", "current")
+    week_start = this_monday if week_target == "current" else this_monday + timedelta(days=7)
+
     save_menu(
         menu_data=final_output.get("menu", {}),
         shopping_list=final_output.get("shopping_list", {}),
@@ -158,6 +175,7 @@ async def resume_generation(req: PantryResponse):
         context=result.get("context", {}),
         estimated_cost=result.get("estimated_cost", 0),
         recommended_super=result.get("recommended_super", ""),
+        week_start=week_start,
     )
 
     pantry_items = result.get("pantry_items", [])
@@ -304,6 +322,59 @@ async def get_logs(thread_id: str):
     """Devuelve el timeline de ejecución de nodos para una sesión concreta."""
     logs = get_node_logs(thread_id)
     return {"thread_id": thread_id, "count": len(logs), "logs": logs}
+
+
+# ── Adjust menu ───────────────────────────────────────────────────────────────
+
+_ADJUST_PROMPT = """Tienes el menú semanal y la lista de la compra de un usuario. Quiere hacer un cambio puntual.
+
+MENÚ ACTUAL (JSON):
+{menu}
+
+LISTA DE LA COMPRA ACTUAL (JSON):
+{shopping_list}
+
+CAMBIO SOLICITADO:
+{change_request}
+
+Aplica SOLO el cambio pedido al menú. El resto del menú debe quedar exactamente igual.
+Actualiza la lista de la compra en consecuencia: elimina ingredientes que ya no se usen y añade los nuevos.
+Devuelve SOLO JSON con esta estructura exacta, sin texto adicional:
+{{"menu": {{...}}, "shopping_list": {{...}}}}"""
+
+@app.post("/api/generate/adjust")
+async def adjust_menu(req: AdjustRequest):
+    import json as _json
+    llm = get_llm()
+    prompt = _ADJUST_PROMPT.format(
+        menu=_json.dumps(req.menu, ensure_ascii=False),
+        shopping_list=_json.dumps(req.shopping_list, ensure_ascii=False),
+        change_request=req.change_request,
+    )
+    response = llm.invoke(prompt)
+    content = response.content.strip()
+    if content.startswith("```"):
+        content = content.split("```")[1]
+        if content.startswith("json"):
+            content = content[4:]
+    try:
+        return _json.loads(content)
+    except Exception:
+        raise HTTPException(status_code=422, detail="El modelo no devolvió un JSON válido.")
+
+
+# ── Menus endpoints ───────────────────────────────────────────────────────────
+
+@app.get("/api/menus/current")
+async def current_menu():
+    menu = get_current_week_menu()
+    return menu if menu is not None else {}
+
+
+@app.get("/api/menus/next")
+async def next_menu():
+    menu = get_next_week_menu()
+    return menu if menu is not None else {}
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

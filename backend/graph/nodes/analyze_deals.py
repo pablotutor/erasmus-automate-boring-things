@@ -13,8 +13,16 @@ LISTA DE COMPRA DEL USUARIO:
 OFERTAS POR SUPERMERCADO:
 {deals_text}
 
-Para cada supermercado, identifica qué productos de la lista están en oferta.
-Elige el supermercado que mejor cubre la lista con ofertas.
+Los folletos pueden estar en alemán, inglés o español. La lista de compra puede usar cualquier idioma.
+Haz la equivalencia entre idiomas: "chicken" = "Huhn/Hähnchen/Hühnchen", "milk" = "Milch", "eggs" = "Eier",
+"rice" = "Reis", "bread" = "Brot", "butter" = "Butter", "yogurt" = "Joghurt", "salmon" = "Lachs",
+"pasta" = "Nudeln/Pasta", "spinach" = "Spinat", "lettuce" = "Salat", "banana" = "Banane",
+"potato" = "Kartoffel", "tomato" = "Tomate", "onion" = "Zwiebel", "carrot" = "Karotte/Möhre",
+"lentils" = "Linsen", "oats" = "Haferflocken", "honey" = "Honig", "olive oil" = "Olivenöl".
+Usa el sentido común para otros productos aunque no estén en esta lista de equivalencias.
+
+Para cada supermercado, identifica qué productos de la lista están en oferta (busca coincidencias aunque
+el idioma sea diferente). Elige el supermercado que mejor cubre la lista con ofertas.
 
 Devuelve SOLO JSON:
 {{

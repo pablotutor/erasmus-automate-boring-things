@@ -107,6 +107,75 @@ def save_deals(supermarket: str, raw_text: str, expires_at: date | None = None) 
         conn.commit()
 
 
+def _this_monday() -> date:
+    today = date.today()
+    return today - timedelta(days=today.weekday())
+
+
+def get_current_week_menu() -> dict | None:
+    monday = _this_monday()
+    next_monday = monday + timedelta(days=7)
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT menu_data, shopping_list, recommended_super, budget, estimated_cost, created_at, context
+                FROM weekly_menus
+                WHERE week_start >= :monday AND week_start < :next_monday
+                ORDER BY created_at DESC LIMIT 1
+            """),
+            {"monday": monday, "next_monday": next_monday},
+        ).fetchone()
+    if row is None:
+        return None
+    r = dict(row._mapping)
+    budget_val = float(r["budget"] or 0)
+    estimated_val = float(r["estimated_cost"] or 0)
+    return {
+        "menu": r["menu_data"],
+        "shopping_list": r["shopping_list"],
+        "supermarket": {"recommended": r["recommended_super"] or "", "reasoning": ""},
+        "budget_summary": {
+            "budget": budget_val,
+            "estimated": estimated_val,
+            "remaining": round(budget_val - estimated_val, 2),
+        },
+        "created_at": str(r["created_at"]),
+        "context": json.loads(r["context"]) if r["context"] else {},
+    }
+
+
+def get_next_week_menu() -> dict | None:
+    monday = _this_monday() + timedelta(days=7)
+    next_monday = monday + timedelta(days=7)
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT menu_data, shopping_list, recommended_super, budget, estimated_cost, created_at, context
+                FROM weekly_menus
+                WHERE week_start >= :monday AND week_start < :next_monday
+                ORDER BY created_at DESC LIMIT 1
+            """),
+            {"monday": monday, "next_monday": next_monday},
+        ).fetchone()
+    if row is None:
+        return None
+    r = dict(row._mapping)
+    budget_val = float(r["budget"] or 0)
+    estimated_val = float(r["estimated_cost"] or 0)
+    return {
+        "menu": r["menu_data"],
+        "shopping_list": r["shopping_list"],
+        "supermarket": {"recommended": r["recommended_super"] or "", "reasoning": ""},
+        "budget_summary": {
+            "budget": budget_val,
+            "estimated": estimated_val,
+            "remaining": round(budget_val - estimated_val, 2),
+        },
+        "created_at": str(r["created_at"]),
+        "context": json.loads(r["context"]) if r["context"] else {},
+    }
+
+
 def save_menu(
     menu_data: dict,
     shopping_list: dict,
@@ -114,7 +183,9 @@ def save_menu(
     context: dict,
     estimated_cost: float,
     recommended_super: str,
+    week_start: date | None = None,
 ) -> None:
+    ws = week_start or _this_monday()
     with engine.connect() as conn:
         conn.execute(
             text(
@@ -123,7 +194,7 @@ def save_menu(
                 "VALUES (:week_start, :context, :budget, :menu_data, :shopping_list, :recommended_super, :estimated_cost)"
             ),
             {
-                "week_start": date.today(),
+                "week_start": ws,
                 "context": json.dumps(context, ensure_ascii=False),
                 "budget": budget,
                 "menu_data": json.dumps(menu_data, ensure_ascii=False),
@@ -138,10 +209,40 @@ def save_menu(
 def get_deals() -> dict:
     with engine.connect() as conn:
         result = conn.execute(
-            text("SELECT supermarket, raw_text FROM weekly_deals WHERE week_start = :today"),
+            text("""
+                SELECT DISTINCT ON (supermarket) supermarket, raw_text
+                FROM weekly_deals
+                WHERE expires_at >= :today
+                ORDER BY supermarket, uploaded_at DESC
+            """),
             {"today": date.today()},
         )
         return {row.supermarket: row.raw_text for row in result}
+
+
+def get_all_deals() -> list[dict]:
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT id, supermarket, week_start, expires_at, uploaded_at, length(raw_text) as chars FROM weekly_deals ORDER BY uploaded_at DESC")
+        )
+        return [dict(row._mapping) for row in result]
+
+
+def get_all_menus() -> list[dict]:
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT id, week_start, budget, estimated_cost, recommended_super, created_at, menu_data, shopping_list FROM weekly_menus ORDER BY created_at DESC LIMIT 20")
+        )
+        return [dict(row._mapping) for row in result]
+
+
+def get_recent_logs(limit: int = 100) -> list[dict]:
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT * FROM node_logs ORDER BY created_at DESC LIMIT :limit"),
+            {"limit": limit},
+        )
+        return [dict(row._mapping) for row in result]
 
 
 def clear_deals() -> None:

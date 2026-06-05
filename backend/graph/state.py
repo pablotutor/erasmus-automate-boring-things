@@ -33,3 +33,6 @@ class MealPlannerState(TypedDict):
 
     # Output final
     final_output: dict
+
+    # Semana objetivo para guardar el menú ("current" o "next")
+    week_target: Optional[str]

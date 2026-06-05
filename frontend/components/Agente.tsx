@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const BASE = "http://localhost:8000";
 
@@ -31,6 +31,20 @@ const LOADING_STEPS = [
   "Preparando el resultado...",
 ];
 
+const DAY_MAP: Record<string, string> = {
+  monday: "mon", tuesday: "tue", wednesday: "wed", thursday: "thu",
+  friday: "fri", saturday: "sat", sunday: "sun",
+};
+
+function normalizeMenu(data: Record<string, unknown>): Result {
+  if (data.menu && typeof data.menu === "object") {
+    data.menu = Object.fromEntries(
+      Object.entries(data.menu as Record<string, unknown>).map(([k, v]) => [DAY_MAP[k] ?? k, v])
+    );
+  }
+  return data as unknown as Result;
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface ShoppingItem { name: string; quantity?: number; unit?: string; }
@@ -47,6 +61,7 @@ interface Result {
   shopping_list: ShoppingList;
   supermarket?: { recommended: string; reasoning: string };
   budget_summary?: { budget: number; estimated: number; remaining: number };
+  created_at?: string;
 }
 
 // ── Day toggle cell ──────────────────────────────────────────────────────────
@@ -307,16 +322,50 @@ export default function Agente() {
   const [loadingStep, setLoadingStep]         = useState("");
   const [result, setResult]                   = useState<Result | null>(null);
   const [error, setError]                     = useState<string | null>(null);
+  const [loadedFromCache, setLoadedFromCache] = useState(false);
+  const [weekTarget, setWeekTarget]           = useState<"current" | "next">("current");
+  const [resultWeek, setResultWeek]           = useState<"current" | "next" | null>(null);
+  const [nextWeekResult, setNextWeekResult]   = useState<Result | null>(null);
+  const [activeView, setActiveView]           = useState<"current" | "next">("current");
+  const [adjustText, setAdjustText]           = useState("");
+  const [adjustLoading, setAdjustLoading]     = useState(false);
 
   // Maps day → list of activity labels for the calendar
   const [activityByDay, setActivityByDay]     = useState<Record<string, string[]>>({});
 
   const sportDays = Array.from(new Set([...calisteniaDays, ...runningDays, ...footballDays]));
 
-  async function generate(e: React.FormEvent) {
+  // Carga menús de esta semana y la siguiente al montar
+  useEffect(() => {
+    Promise.all([
+      fetch(`${BASE}/api/menus/current`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${BASE}/api/menus/next`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([cur, nxt]) => {
+      if (cur?.menu) {
+        setResult(normalizeMenu(cur));
+        setLoadedFromCache(true);
+        setResultWeek("current");
+        const ctx = cur.context || {};
+        const actMap: Record<string, string[]> = {};
+        const push = (day: string, act: string) => { actMap[day] = actMap[day] ? [...actMap[day], act] : [act]; };
+        (ctx.calistenia_days ?? []).forEach((d: string) => push(d, "calistenia"));
+        (ctx.running_days    ?? []).forEach((d: string) => push(d, "running"));
+        (ctx.football_days   ?? []).forEach((d: string) => push(d, "fútbol"));
+        (ctx.travel_days     ?? []).forEach((d: string) => push(d, "viaje"));
+        setActivityByDay(actMap);
+      }
+      if (nxt?.menu) {
+        setNextWeekResult(normalizeMenu(nxt));
+        setActiveView("next");
+      }
+    });
+  }, []);
+
+  async function generate(e: React.FormEvent, target: "current" | "next" = weekTarget) {
     e.preventDefault();
     setLoading(true);
     setResult(null);
+    setLoadedFromCache(false);
     setError(null);
 
     // Build activity map — multiple activities can share a day
@@ -350,6 +399,7 @@ export default function Agente() {
           football_days: footballDays,
           travel_days: travelDays,
           notes: notes.trim() || null,
+          week_target: target,
         }),
       });
       if (!startRes.ok) throw new Error(await startRes.text());
@@ -364,23 +414,43 @@ export default function Agente() {
       if (!resumeRes.ok) throw new Error(await resumeRes.text());
       const data = await resumeRes.json();
 
-      // Normalize day keys: backend LLM returns "monday/tuesday/..." → "mon/tue/..."
-      const DAY_MAP: Record<string, string> = {
-        monday: "mon", tuesday: "tue", wednesday: "wed", thursday: "thu",
-        friday: "fri", saturday: "sat", sunday: "sun",
-      };
-      if (data.menu) {
-        data.menu = Object.fromEntries(
-          Object.entries(data.menu as Record<string, unknown>).map(([k, v]) => [DAY_MAP[k] ?? k, v])
-        );
+      const normalized = normalizeMenu(data);
+      if (target === "next") {
+        setNextWeekResult(normalized);
+        setActiveView("next");
+      } else {
+        setResult(normalized);
       }
-
-      setResult(data);
+      setResultWeek(target);
     } catch (e) {
       setError(String(e));
     } finally {
       clearInterval(stepTimer);
       setLoading(false);
+    }
+  }
+
+  async function adjust() {
+    if (!adjustText.trim() || !nextWeekResult) return;
+    setAdjustLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/generate/adjust`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menu: nextWeekResult.menu, shopping_list: nextWeekResult.shopping_list, change_request: adjustText }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setNextWeekResult(prev => prev ? {
+        ...prev,
+        menu: normalizeMenu({ menu: data.menu } as Record<string, unknown>).menu,
+        shopping_list: data.shopping_list ?? prev.shopping_list,
+      } : prev);
+      setAdjustText("");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAdjustLoading(false);
     }
   }
 
@@ -406,7 +476,7 @@ export default function Agente() {
         position: "sticky", top: 74,
       }}>
         <h3 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: "#1C1917" }}>
-          Esta semana
+          {activeView === "next" ? "Semana siguiente" : "Esta semana"}
         </h3>
 
         {/* Budget */}
@@ -528,16 +598,69 @@ export default function Agente() {
           />
         </div>
 
-        <button type="submit" disabled={loading} style={{
-          padding: 11, borderRadius: 8, border: "none",
-          background: loading ? "#F3F4F6" : "#1C1917",
-          color: loading ? "#A8A29E" : "#fff",
-          fontSize: 14, fontWeight: 600,
-          cursor: loading ? "default" : "pointer",
-          letterSpacing: "0.02em", transition: "background 0.2s",
-        }}>
-          {loading ? loadingStep : "✦  Generar menú"}
-        </button>
+        {/* Botones según vista activa */}
+        {loading ? (
+          <button disabled style={{
+            padding: 11, borderRadius: 8, border: "none",
+            background: "#F3F4F6", color: "#A8A29E",
+            fontSize: 14, fontWeight: 600, cursor: "default",
+          }}>{loadingStep}</button>
+        ) : activeView === "current" && result ? (
+          <button
+            type="button"
+            onClick={e => { setActiveView("next"); generate(e as unknown as React.FormEvent, "next"); }}
+            style={{
+              padding: 11, borderRadius: 8, border: "none",
+              background: "#1C1917", color: "#fff",
+              fontSize: 13, fontWeight: 600, cursor: "pointer",
+              letterSpacing: "0.02em",
+            }}
+          >→  Generar semana siguiente</button>
+        ) : activeView === "next" && nextWeekResult ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <label style={lbl}>Cambiar algo del menú</label>
+            <textarea
+              value={adjustText}
+              onChange={e => setAdjustText(e.target.value)}
+              placeholder="Ej: el lunes a cenar quiero pollo con patatas"
+              style={{ ...inp, height: 60 } as React.CSSProperties}
+            />
+            <button
+              type="button"
+              disabled={adjustLoading || !adjustText.trim()}
+              onClick={adjust}
+              style={{
+                padding: 10, borderRadius: 8, border: "none",
+                background: adjustLoading || !adjustText.trim() ? "#F3F4F6" : "var(--accent)",
+                color: adjustLoading || !adjustText.trim() ? "#A8A29E" : "#fff",
+                fontSize: 13, fontWeight: 600,
+                cursor: adjustLoading || !adjustText.trim() ? "default" : "pointer",
+              }}
+            >{adjustLoading ? "Aplicando..." : "Aplicar cambio"}</button>
+            <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+            <button
+              type="button"
+              onClick={e => generate(e as unknown as React.FormEvent, "next")}
+              style={{
+                padding: 10, borderRadius: 8,
+                border: "1.5px solid var(--border)",
+                background: "#FAFAF7", color: "#78716C",
+                fontSize: 12, fontWeight: 500, cursor: "pointer",
+              }}
+            >↺  Regenerar desde 0</button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={e => generate(e as unknown as React.FormEvent, activeView)}
+            style={{
+              padding: 11, borderRadius: 8, border: "none",
+              background: "#1C1917", color: "#fff",
+              fontSize: 14, fontWeight: 600, cursor: "pointer",
+              letterSpacing: "0.02em",
+            }}
+          >✦  {activeView === "next" ? "Generar semana siguiente" : "Generar menú"}</button>
+        )}
 
         {error && <p style={{ fontSize: 12, color: "#DC2626" }}>{error}</p>}
       </form>
@@ -546,6 +669,24 @@ export default function Agente() {
       <div>
         {!result && !loading && <EmptyPanel />}
         {loading && <LoadingPanel step={loadingStep} />}
+        {result && !loading && loadedFromCache && (
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            background: "var(--accent-light)", borderRadius: 8, padding: "10px 14px",
+            marginBottom: 14, fontSize: 12, color: "var(--accent)",
+          }}>
+            <span>
+              Menú de esta semana · guardado el{" "}
+              {result.created_at
+                ? new Date(result.created_at).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })
+                : "esta semana"}
+            </span>
+            <button
+              onClick={() => { setResult(null); setLoadedFromCache(false); setResultWeek(null); }}
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "var(--accent)", lineHeight: 1 }}
+            >×</button>
+          </div>
+        )}
         {result && (
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <div style={{
