@@ -667,44 +667,75 @@ export default function Agente() {
 
       {/* Right: result */}
       <div>
-        {!result && !loading && <EmptyPanel />}
-        {loading && <LoadingPanel step={loadingStep} />}
-        {result && !loading && loadedFromCache && (
-          <div style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            background: "var(--accent-light)", borderRadius: 8, padding: "10px 14px",
-            marginBottom: 14, fontSize: 12, color: "var(--accent)",
-          }}>
-            <span>
-              Menú de esta semana · guardado el{" "}
-              {result.created_at
-                ? new Date(result.created_at).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })
-                : "esta semana"}
-            </span>
-            <button
-              onClick={() => { setResult(null); setLoadedFromCache(false); setResultWeek(null); }}
-              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "var(--accent)", lineHeight: 1 }}
-            >×</button>
+        {/* Selector de semana */}
+        {(result || nextWeekResult) && !loading && (
+          <div style={{ display: "flex", gap: 2, marginBottom: 16 }}>
+            {(["current", "next"] as const).map(view => (
+              <button
+                key={view}
+                onClick={() => setActiveView(view)}
+                style={{
+                  padding: "6px 16px", borderRadius: 6, border: "none", cursor: "pointer",
+                  fontSize: 13, fontWeight: activeView === view ? 600 : 400,
+                  background: activeView === view ? "#1C1917" : "#F3F4F6",
+                  color: activeView === view ? "#fff" : "#78716C",
+                  transition: "all 0.15s",
+                }}
+              >{view === "current" ? "Esta semana" : "Semana siguiente"}</button>
+            ))}
           </div>
         )}
-        {result && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            <div style={{
-              background: "#fff", border: "1px solid var(--border)",
-              borderRadius: 12, padding: 20,
-            }}>
-              <h3 style={{
-                fontFamily: "'DM Serif Display', serif",
-                fontSize: 18, color: "#1C1917", marginBottom: 16,
-              }}>Menú semanal</h3>
-              <WeekCalendar menu={result.menu} activityByDay={activityByDay} />
+
+        {loading && <LoadingPanel step={loadingStep} />}
+
+        {!loading && activeView === "current" && (
+          result ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              {loadedFromCache && (
+                <div style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  background: "var(--accent-light)", borderRadius: 8, padding: "10px 14px",
+                  fontSize: 12, color: "var(--accent)",
+                }}>
+                  <span>Menú guardado · {result.created_at ? new Date(result.created_at).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" }) : "esta semana"}</span>
+                  <button onClick={() => { setResult(null); setLoadedFromCache(false); setResultWeek(null); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "var(--accent)" }}>×</button>
+                </div>
+              )}
+              <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
+                <h3 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: "#1C1917", marginBottom: 16 }}>Menú semanal</h3>
+                <WeekCalendar menu={result.menu} activityByDay={activityByDay} />
+              </div>
+              <ShoppingList shoppingList={result.shopping_list} supermarket={result.supermarket} budgetSummary={result.budget_summary} />
             </div>
-            <ShoppingList
-              shoppingList={result.shopping_list}
-              supermarket={result.supermarket}
-              budgetSummary={result.budget_summary}
-            />
-          </div>
+          ) : <EmptyPanel />
+        )}
+
+        {!loading && activeView === "next" && (
+          nextWeekResult ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              <div style={{
+                background: "var(--accent-light)", borderRadius: 8, padding: "10px 14px",
+                fontSize: 12, color: "var(--accent)",
+              }}>
+                Semana siguiente · {nextWeekResult.created_at ? new Date(nextWeekResult.created_at).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" }) : "próxima semana"}
+              </div>
+              <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
+                <h3 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: "#1C1917", marginBottom: 16 }}>Menú semana siguiente</h3>
+                <WeekCalendar menu={nextWeekResult.menu} activityByDay={{}} />
+              </div>
+              <ShoppingList shoppingList={nextWeekResult.shopping_list} supermarket={nextWeekResult.supermarket} budgetSummary={nextWeekResult.budget_summary} />
+            </div>
+          ) : (
+            <div style={{
+              background: "#fff", border: "1.5px dashed var(--border)",
+              borderRadius: 12, padding: "70px 40px", textAlign: "center", color: "#A8A29E",
+            }}>
+              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 48, color: "#E8E5E1", marginBottom: 18 }}>✦</div>
+              <p style={{ fontSize: 14, marginBottom: 5, color: "#78716C" }}>No hay menú para la semana siguiente</p>
+              <p style={{ fontSize: 12 }}>Configura la semana y pulsa "Generar semana siguiente"</p>
+            </div>
+          )
         )}
       </div>
     </div>
