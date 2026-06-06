@@ -82,9 +82,9 @@ def _fix_repeats(menu: dict, filtered_meals: list, travel_days: list) -> dict:
     """Reemplaza en Python los platos que superen MAX_REPEATS."""
     by_type: dict[str, list[str]] = {"breakfast": [], "lunch": [], "dinner": []}
     for m in filtered_meals:
-        mt = m.get("meal_type", "")
-        if mt in by_type:
-            by_type[mt].append(m["name"])
+        for mt in m.get("meal_types", []):
+            if mt in by_type:
+                by_type[mt].append(m["name"])
 
     counts = _count_repeats(menu)
 
@@ -116,9 +116,9 @@ def _fix_home_days(menu: dict, travel_days: list, filtered_meals: list) -> dict:
     """Rellena nulls en días de casa y fuerza null en días de viaje."""
     by_type: dict[str, list[str]] = {"breakfast": [], "lunch": [], "dinner": []}
     for m in filtered_meals:
-        mt = m.get("meal_type", "")
-        if mt in by_type:
-            by_type[mt].append(m["name"])
+        for mt in m.get("meal_types", []):
+            if mt in by_type:
+                by_type[mt].append(m["name"])
 
     used: dict[str, int] = {}
     for day_data in menu.values():
@@ -158,7 +158,7 @@ def _fix_home_days(menu: dict, travel_days: list, filtered_meals: list) -> dict:
 @log_node("generate_menu", is_llm=True)
 def run(state: MealPlannerState) -> dict:
     meals_list = "\n".join([
-        f"- [{m['meal_type']}] {m['name']} | ingredientes: {', '.join(m['ingredients'])} | tags: {', '.join(m['tags'])}"
+        f"- [{', '.join(m.get('meal_types', []))}] {m['name']} | ingredientes: {', '.join(m['ingredients'])} | tags: {', '.join(m['tags'])}"
         for m in state["filtered_meals"]
     ])
 

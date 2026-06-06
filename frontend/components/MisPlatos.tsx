@@ -7,7 +7,7 @@ const BASE = "http://localhost:8000";
 interface Meal {
   id: number;
   name: string;
-  meal_type: "breakfast" | "lunch" | "dinner";
+  meal_types: string[];
   ingredients: string[];
   tags: string[];
   prep_time: number | null;
@@ -92,11 +92,11 @@ function MealCard({ meal, onDelete, onEdit }: {
             width: "100%", height: "100%",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <span style={{ fontSize: 36, opacity: 0.25 }}>{MEAL_EMOJI[meal.meal_type]}</span>
+            <span style={{ fontSize: 36, opacity: 0.25 }}>{MEAL_EMOJI[meal.meal_types[0]] ?? "🍴"}</span>
           </div>
         )}
-        <div style={{ position: "absolute", bottom: 8, left: 10 }}>
-          <TypeBadge type={meal.meal_type} />
+        <div style={{ position: "absolute", bottom: 8, left: 10, display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {meal.meal_types.map(t => <TypeBadge key={t} type={t} />)}
         </div>
       </div>
 
@@ -178,7 +178,7 @@ function MealCard({ meal, onDelete, onEdit }: {
 
 interface FormState {
   name: string;
-  meal_type: "breakfast" | "lunch" | "dinner";
+  meal_types: string[];
   ingredients: string;
   tags: string[];
   prep_time: string;
@@ -193,7 +193,7 @@ function MealFormModal({ initial, onClose, onSave }: {
   const isEdit = !!initial;
   const [form, setForm] = useState<FormState>({
     name:        initial?.name        ?? "",
-    meal_type:   initial?.meal_type   ?? "lunch",
+    meal_types:  initial?.meal_types  ?? ["lunch"],
     ingredients: initial?.ingredients?.join(", ") ?? "",
     tags:        initial?.tags        ?? [],
     prep_time:   initial?.prep_time != null ? String(initial.prep_time) : "",
@@ -256,7 +256,7 @@ function MealFormModal({ initial, onClose, onSave }: {
 
     const payload = {
       name:        form.name.trim(),
-      meal_type:   form.meal_type,
+      meal_types:  form.meal_types,
       ingredients: form.ingredients.split(",").map(s => s.trim()).filter(Boolean),
       tags:        form.tags,
       prep_time:   parseInt(form.prep_time) || null,
@@ -374,17 +374,25 @@ function MealFormModal({ initial, onClose, onSave }: {
           </div>
 
           <div>
-            <label style={lbl}>Tipo</label>
+            <label style={lbl}>Tipo <span style={{ textTransform: "none", fontWeight: 400 }}>(selecciona uno o varios)</span></label>
             <div style={{ display: "flex", gap: 6 }}>
-              {(["breakfast", "lunch", "dinner"] as const).map(t => (
-                <button key={t} type="button" onClick={() => set("meal_type", t)} style={{
-                  flex: 1, padding: "8px 4px", borderRadius: 6, fontSize: 12, cursor: "pointer",
-                  border: form.meal_type === t ? "2px solid var(--accent)" : "1px solid var(--border)",
-                  background: form.meal_type === t ? "var(--accent-light)" : "#FAFAF7",
-                  color: form.meal_type === t ? "var(--accent)" : "#78716C",
-                  fontWeight: form.meal_type === t ? 600 : 400,
-                }}>{TYPE_META[t].label}</button>
-              ))}
+              {(["breakfast", "lunch", "dinner"] as const).map(t => {
+                const sel = form.meal_types.includes(t);
+                return (
+                  <button key={t} type="button" onClick={() => setForm(f => ({
+                    ...f,
+                    meal_types: sel
+                      ? f.meal_types.filter(x => x !== t)
+                      : [...f.meal_types, t],
+                  }))} style={{
+                    flex: 1, padding: "8px 4px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+                    border: sel ? "2px solid var(--accent)" : "1px solid var(--border)",
+                    background: sel ? "var(--accent-light)" : "#FAFAF7",
+                    color: sel ? "var(--accent)" : "#78716C",
+                    fontWeight: sel ? 600 : 400,
+                  }}>{TYPE_META[t].label}</button>
+                );
+              })}
             </div>
           </div>
 
@@ -475,12 +483,12 @@ export default function MisPlatos() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = filter === "all" ? meals : meals.filter(m => m.meal_type === filter);
+  const filtered = filter === "all" ? meals : meals.filter(m => m.meal_types.includes(filter));
   const counts = {
     all:       meals.length,
-    breakfast: meals.filter(m => m.meal_type === "breakfast").length,
-    lunch:     meals.filter(m => m.meal_type === "lunch").length,
-    dinner:    meals.filter(m => m.meal_type === "dinner").length,
+    breakfast: meals.filter(m => m.meal_types.includes("breakfast")).length,
+    lunch:     meals.filter(m => m.meal_types.includes("lunch")).length,
+    dinner:    meals.filter(m => m.meal_types.includes("dinner")).length,
   };
 
   async function handleDelete(id: number) {

@@ -14,7 +14,7 @@ def run(state: MealPlannerState) -> dict:
     if travel_days:
         all_meals = [
             m for m in all_meals
-            if "batch-cook" not in m.get("tags", []) or m["meal_type"] != "dinner"
+            if "batch-cook" not in m.get("tags", []) or "dinner" not in m.get("meal_types", [])
         ]
 
     if gym_days:

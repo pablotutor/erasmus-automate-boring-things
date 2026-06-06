@@ -8,7 +8,7 @@ def get_all_meals(meal_type=None) -> list[dict]:
     with engine.connect() as conn:
         if meal_type:
             result = conn.execute(
-                text("SELECT * FROM meals WHERE meal_type = :t ORDER BY name"),
+                text("SELECT * FROM meals WHERE :t = ANY(meal_types) ORDER BY name"),
                 {"t": meal_type},
             )
         else:
@@ -20,12 +20,12 @@ def create_meal(data: dict) -> dict:
     with engine.connect() as conn:
         result = conn.execute(
             text(
-                "INSERT INTO meals (name, meal_type, ingredients, tags, prep_time, description, image_url) "
-                "VALUES (:name, :meal_type, :ingredients, :tags, :prep_time, :description, :image_url) RETURNING *"
+                "INSERT INTO meals (name, meal_types, ingredients, tags, prep_time, description, image_url) "
+                "VALUES (:name, :meal_types, :ingredients, :tags, :prep_time, :description, :image_url) RETURNING *"
             ),
             {
                 "name":        data["name"],
-                "meal_type":   data["meal_type"],
+                "meal_types":  data.get("meal_types", []),
                 "ingredients": data.get("ingredients", []),
                 "tags":        data.get("tags", []),
                 "prep_time":   data.get("prep_time"),
@@ -42,7 +42,7 @@ def update_meal(meal_id: int, data: dict) -> dict:
         result = conn.execute(
             text(
                 "UPDATE meals SET "
-                "name = :name, meal_type = :meal_type, ingredients = :ingredients, "
+                "name = :name, meal_types = :meal_types, ingredients = :ingredients, "
                 "tags = :tags, prep_time = :prep_time, description = :description, "
                 "image_url = :image_url "
                 "WHERE id = :id RETURNING *"
@@ -50,7 +50,7 @@ def update_meal(meal_id: int, data: dict) -> dict:
             {
                 "id":          meal_id,
                 "name":        data["name"],
-                "meal_type":   data["meal_type"],
+                "meal_types":  data.get("meal_types", []),
                 "ingredients": data.get("ingredients", []),
                 "tags":        data.get("tags", []),
                 "prep_time":   data.get("prep_time"),

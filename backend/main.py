@@ -83,7 +83,7 @@ class PantryResponse(BaseModel):
 
 class MealCreate(BaseModel):
     name: str
-    meal_type: str
+    meal_types: list[str]
     ingredients: list[str]
     tags: list[str]
     prep_time: Optional[int] = None
@@ -92,7 +92,7 @@ class MealCreate(BaseModel):
 
 class MealUpdate(BaseModel):
     name: Optional[str] = None
-    meal_type: Optional[str] = None
+    meal_types: Optional[list[str]] = None
     ingredients: Optional[list[str]] = None
     tags: Optional[list[str]] = None
     prep_time: Optional[int] = None
@@ -337,8 +337,13 @@ LISTA DE LA COMPRA ACTUAL (JSON):
 CAMBIO SOLICITADO:
 {change_request}
 
-Aplica SOLO el cambio pedido al menú. El resto del menú debe quedar exactamente igual.
-Actualiza la lista de la compra en consecuencia: elimina ingredientes que ya no se usen y añade los nuevos.
+Instrucciones:
+1. Aplica SOLO el cambio pedido al menú. El resto del menú debe quedar exactamente igual.
+2. Después de actualizar el menú, revisa CADA ingrediente de la lista de la compra:
+   - Si ese ingrediente ya no aparece en NINGUNA comida del nuevo menú, elimínalo de la lista.
+   - Si sigue usándose en alguna comida, consérvalo.
+3. Si el cambio introduce comidas nuevas con ingredientes que no estaban, añádelos a la lista.
+
 Devuelve SOLO JSON con esta estructura exacta, sin texto adicional:
 {{"menu": {{...}}, "shopping_list": {{...}}}}"""
 
