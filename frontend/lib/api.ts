@@ -47,6 +47,21 @@ export async function clearDeals() {
   await fetch(`${BASE}/api/deals`, { method: "DELETE" });
 }
 
+export async function fetchMeals(): Promise<{ id: number; name: string; meal_types: string[]; tags: string[] }[]> {
+  const res = await fetch(`${BASE}/api/meals`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function patchMenuMeal(week: "current" | "next", day: string, mealType: string, mealName: string) {
+  const res = await fetch(`${BASE}/api/menus/${week}/meal`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ day, meal_type: mealType, meal_name: mealName }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 export async function checkHealth() {
   const res = await fetch(`${BASE}/api/health`);
   return res.json() as Promise<{ status: string }>;

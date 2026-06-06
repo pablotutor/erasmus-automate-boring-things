@@ -23,7 +23,7 @@ from db.queries import (
     get_all_meals, create_meal, update_meal, delete_meal,
     get_pantry, update_pantry,
     save_deals, get_deals, get_valid_deals_meta, clear_deals,
-    save_menu, update_menu, get_current_week_menu, get_next_week_menu,
+    save_menu, update_menu, get_current_week_menu, get_next_week_menu, patch_menu_meal,
     get_node_logs,
 )
 
@@ -482,6 +482,21 @@ async def current_menu():
 async def next_menu():
     menu = get_next_week_menu()
     return menu if menu is not None else {}
+
+
+class PatchMealRequest(BaseModel):
+    day: str
+    meal_type: str
+    meal_name: str
+
+@app.patch("/api/menus/{week}/meal")
+async def patch_meal(week: str, req: PatchMealRequest):
+    if week not in ("current", "next"):
+        raise HTTPException(status_code=400, detail="week must be 'current' or 'next'")
+    ok = patch_menu_meal(week, req.day, req.meal_type, req.meal_name)
+    if not ok:
+        raise HTTPException(status_code=404, detail="No menu found for that week")
+    return {"ok": True}
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

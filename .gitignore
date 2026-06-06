@@ -46,3 +46,6 @@ yarn-error.log*
 
 # PDFs subidos (datos personales)
 *.pdf
+
+# Imagenes
+*.png

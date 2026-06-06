@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { fetchMeals, patchMenuMeal } from "../lib/api";
 
 const BASE = "http://localhost:8000";
 
@@ -63,6 +64,21 @@ interface Result {
   budget_summary?: { budget: number; estimated: number; remaining: number };
   created_at?: string;
 }
+interface Meal { id: number; name: string; meal_types: string[]; tags: string[]; }
+
+const MEAL_TYPE_META = {
+  breakfast: { label: "Desayuno", emoji: "🌅", bg: "#FEF3EB", color: "var(--accent)" },
+  lunch:     { label: "Comida",   emoji: "☀️",  bg: "#EFF6FF", color: "#1D4ED8"       },
+  dinner:    { label: "Cena",     emoji: "🌙",  bg: "#F5F3FF", color: "#7C3AED"       },
+} as const;
+
+const TAG_META_POPUP: Record<string, { bg: string; color: string; label: string }> = {
+  gym:          { bg: "#FEF3EB", color: "var(--accent)", label: "Gym"        },
+  quick:        { bg: "#F0FDF4", color: "#15803D",       label: "Rápido"     },
+  cheap:        { bg: "#FFFBEB", color: "#B45309",       label: "Económico"  },
+  "batch-cook": { bg: "#EFF6FF", color: "#1D4ED8",       label: "Batch cook" },
+  travel:       { bg: "#F5F3FF", color: "#7C3AED",       label: "Viaje"      },
+};
 
 // ── Day toggle cell ──────────────────────────────────────────────────────────
 
@@ -96,9 +112,12 @@ function DayToggle({ dayVal, selected, onChange, disabled = [] }: {
 
 // ── Week calendar ────────────────────────────────────────────────────────────
 
-function WeekCalendar({ menu, activityByDay }: {
+function WeekCalendar({ menu, activityByDay, allMeals, week, onMealChange }: {
   menu: Result["menu"];
   activityByDay: Record<string, string[]>;
+  allMeals: Meal[];
+  week: "current" | "next";
+  onMealChange: (day: string, mealType: string, mealName: string) => void;
 }) {
   const MEAL_ROWS = [
     { key: "breakfast", label: "Desayuno" },
@@ -106,65 +125,214 @@ function WeekCalendar({ menu, activityByDay }: {
     { key: "dinner",    label: "Cena"     },
   ] as const;
 
-  return (
-    <div style={{ overflowX: "auto", paddingBottom: 4 }}>
-      <div style={{
-        display: "grid", gridTemplateColumns: "repeat(7, 1fr)",
-        gap: 6, minWidth: 620,
-      }}>
-        {WEEK_DAYS.map(day => {
-          const data = menu[day.value] || {};
-          const acts = activityByDay[day.value] ?? [];
-          return (
-            <div key={day.value}>
-              <div style={{
-                textAlign: "center", paddingBottom: 8,
-                borderBottom: "2px solid var(--border)", marginBottom: 6,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1C1917", marginBottom: 4 }}>
-                  {day.label}
-                </div>
-                {acts.length > 0
-                  ? <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 2 }}>
-                      {acts.map(a => {
-                        const m = ACT_META[a];
-                        return (
-                          <span key={a} style={{
-                            fontSize: 9, fontWeight: 700, padding: "2px 5px",
-                            borderRadius: 999, background: m.bg, color: m.color,
-                            textTransform: "uppercase", letterSpacing: "0.04em",
-                          }}>{m.label}</span>
-                        );
-                      })}
-                    </div>
-                  : <span style={{ fontSize: 9, color: "#D1D5DB" }}>descanso</span>
-                }
-              </div>
+  const [editingCell, setEditingCell] = useState<{ day: string; mealType: string } | null>(null);
+  const [popupAnchor, setPopupAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [hoveredMeal, setHoveredMeal] = useState<number | null>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
 
-              {MEAL_ROWS.map(mt => {
-                const name = data[mt.key];
-                return (
-                  <div key={mt.key} style={{
-                    background: name ? "#fff" : "#FAFAF7",
-                    border: `1px solid ${name ? "var(--border)" : "#F3F4F6"}`,
-                    borderRadius: 6, padding: 7, marginBottom: 4, minHeight: 66,
-                  }}>
-                    <div style={{
-                      fontSize: 9, fontWeight: 600, color: "#A8A29E",
-                      textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4,
-                    }}>{mt.label}</div>
-                    {name
-                      ? <div style={{ fontSize: 11, color: "#1C1917", lineHeight: 1.45, fontWeight: 500 }}>{name}</div>
-                      : <div style={{ fontSize: 11, color: "#D1D5DB", fontStyle: "italic" }}>—</div>
-                    }
+  const POPUP_W = 252;
+
+  useEffect(() => {
+    if (!editingCell) return;
+    function handleClick(e: MouseEvent) {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        setEditingCell(null);
+        setPopupAnchor(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [editingCell]);
+
+  useEffect(() => {
+    document.body.style.overflow = editingCell ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [editingCell]);
+
+  function handleCellClick(e: React.MouseEvent, day: string, mealType: string) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const spaceRight = window.innerWidth - rect.right;
+    const left = spaceRight >= POPUP_W + 12 ? rect.right + 8 : rect.left - POPUP_W - 8;
+    setPopupAnchor({ top: rect.top, left });
+    setEditingCell({ day, mealType });
+  }
+
+  function handleSelect(mealName: string) {
+    if (!editingCell) return;
+    onMealChange(editingCell.day, editingCell.mealType, mealName);
+    patchMenuMeal(week, editingCell.day, editingCell.mealType, mealName).catch(console.error);
+    setEditingCell(null);
+    setPopupAnchor(null);
+  }
+
+  const activeMeta = editingCell
+    ? MEAL_TYPE_META[editingCell.mealType as keyof typeof MEAL_TYPE_META]
+    : null;
+  const activeDay = editingCell
+    ? WEEK_DAYS.find(d => d.value === editingCell.day)
+    : null;
+  const filteredMeals = editingCell
+    ? allMeals.filter(m => m.meal_types.includes(editingCell.mealType))
+    : [];
+
+  return (
+    <>
+      <div style={{ overflowX: "auto", paddingBottom: 4 }}>
+        <div style={{
+          display: "grid", gridTemplateColumns: "repeat(7, 1fr)",
+          gap: 6, minWidth: 620,
+        }}>
+          {WEEK_DAYS.map(day => {
+            const data = menu[day.value] || {};
+            const acts = activityByDay[day.value] ?? [];
+            return (
+              <div key={day.value}>
+                <div style={{
+                  textAlign: "center", paddingBottom: 8,
+                  borderBottom: "2px solid var(--border)", marginBottom: 6,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1C1917", marginBottom: 4 }}>
+                    {day.label}
                   </div>
-                );
-              })}
-            </div>
-          );
-        })}
+                  {acts.length > 0
+                    ? <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 2 }}>
+                        {acts.map(a => {
+                          const m = ACT_META[a];
+                          return (
+                            <span key={a} style={{
+                              fontSize: 9, fontWeight: 700, padding: "2px 5px",
+                              borderRadius: 999, background: m.bg, color: m.color,
+                              textTransform: "uppercase", letterSpacing: "0.04em",
+                            }}>{m.label}</span>
+                          );
+                        })}
+                      </div>
+                    : <span style={{ fontSize: 9, color: "#D1D5DB" }}>descanso</span>
+                  }
+                </div>
+
+                {MEAL_ROWS.map(mt => {
+                  const name = data[mt.key];
+                  const isEditing = editingCell?.day === day.value && editingCell?.mealType === mt.key;
+                  return (
+                    <div key={mt.key} style={{ marginBottom: 4 }}>
+                      <div
+                        onClick={e => handleCellClick(e, day.value, mt.key)}
+                        style={{
+                          background: name ? "#fff" : "#FAFAF7",
+                          border: `1px solid ${isEditing ? "var(--accent)" : name ? "var(--border)" : "#F3F4F6"}`,
+                          borderRadius: 6, padding: 7, minHeight: 66,
+                          cursor: "pointer",
+                          transition: "border-color 0.15s, box-shadow 0.15s",
+                          boxShadow: isEditing ? "0 0 0 3px var(--accent-light)" : "none",
+                        }}
+                      >
+                        <div style={{
+                          fontSize: 9, fontWeight: 600, color: "#A8A29E",
+                          textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4,
+                        }}>{mt.label}</div>
+                        {name
+                          ? <div style={{ fontSize: 11, color: "#1C1917", lineHeight: 1.45, fontWeight: 500 }}>{name}</div>
+                          : <div style={{ fontSize: 11, color: "#D1D5DB", fontStyle: "italic" }}>—</div>
+                        }
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
+
+      {editingCell && popupAnchor && activeMeta && (
+        <div
+          ref={popupRef}
+          onWheel={e => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top: popupAnchor.top,
+            left: popupAnchor.left,
+            width: POPUP_W,
+            zIndex: 200,
+            borderRadius: 12,
+            border: "1px solid var(--border)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
+            background: "#fff",
+            overflow: "hidden",
+          }}
+        >
+          {/* Header */}
+          <div style={{
+            background: activeMeta.bg,
+            padding: "14px 16px 12px",
+            display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+          }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+                <span style={{ fontSize: 18 }}>{activeMeta.emoji}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: activeMeta.color }}>
+                  {activeMeta.label}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: "#78716C", paddingLeft: 2 }}>
+                {activeDay?.label} · Cambiar plato
+              </div>
+            </div>
+            <button
+              onClick={() => { setEditingCell(null); setPopupAnchor(null); }}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: 18, color: "#A8A29E", lineHeight: 1, padding: "0 2px",
+              }}
+            >×</button>
+          </div>
+
+          {/* Lista */}
+          <div style={{ maxHeight: 280, overflowY: "auto", overscrollBehavior: "contain" }}>
+            {filteredMeals.length === 0
+              ? <div style={{ padding: "20px 16px", textAlign: "center", color: "#A8A29E", fontSize: 12, fontStyle: "italic" }}>
+                  Sin platos para este tipo
+                </div>
+              : filteredMeals.map(m => (
+                  <div
+                    key={m.id}
+                    onMouseEnter={() => setHoveredMeal(m.id)}
+                    onMouseLeave={() => setHoveredMeal(null)}
+                    onClick={() => handleSelect(m.name)}
+                    style={{
+                      padding: "9px 14px",
+                      cursor: "pointer",
+                      background: hoveredMeal === m.id ? activeMeta.bg : "#fff",
+                      borderBottom: "1px solid #F3F4F6",
+                      transition: "background 0.1s",
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "#1C1917", marginBottom: m.tags?.length ? 5 : 0 }}>
+                      {m.name}
+                    </div>
+                    {m.tags?.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {m.tags.map(tag => {
+                          const tm = TAG_META_POPUP[tag];
+                          if (!tm) return null;
+                          return (
+                            <span key={tag} style={{
+                              fontSize: 9, fontWeight: 600, padding: "2px 6px",
+                              borderRadius: 999, background: tm.bg, color: tm.color,
+                              textTransform: "uppercase", letterSpacing: "0.05em",
+                            }}>{tm.label}</span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))
+            }
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -329,14 +497,16 @@ export default function Agente() {
   const [activeView, setActiveView]           = useState<"current" | "next">("current");
   const [adjustText, setAdjustText]           = useState("");
   const [adjustLoading, setAdjustLoading]     = useState(false);
+  const [allMeals, setAllMeals]               = useState<Meal[]>([]);
 
   // Maps day → list of activity labels for the calendar
   const [activityByDay, setActivityByDay]     = useState<Record<string, string[]>>({});
 
   const sportDays = Array.from(new Set([...calisteniaDays, ...runningDays, ...footballDays]));
 
-  // Carga menús de esta semana y la siguiente al montar
+  // Carga menús de esta semana y la siguiente al montar, y catálogo de platos
   useEffect(() => {
+    fetchMeals().then(setAllMeals).catch(console.error);
     Promise.all([
       fetch(`${BASE}/api/menus/current`).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`${BASE}/api/menus/next`).then(r => r.ok ? r.json() : null).catch(() => null),
@@ -704,7 +874,18 @@ export default function Agente() {
               )}
               <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
                 <h3 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: "#1C1917", marginBottom: 16 }}>Menú semanal</h3>
-                <WeekCalendar menu={result.menu} activityByDay={activityByDay} />
+                <WeekCalendar
+                  menu={result.menu}
+                  activityByDay={activityByDay}
+                  allMeals={allMeals}
+                  week="current"
+                  onMealChange={(day, mealType, mealName) =>
+                    setResult(prev => prev ? {
+                      ...prev,
+                      menu: { ...prev.menu, [day]: { ...prev.menu[day], [mealType]: mealName } }
+                    } : prev)
+                  }
+                />
               </div>
               <ShoppingList shoppingList={result.shopping_list} supermarket={result.supermarket} budgetSummary={result.budget_summary} />
             </div>
@@ -722,7 +903,18 @@ export default function Agente() {
               </div>
               <div style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 12, padding: 20 }}>
                 <h3 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: "#1C1917", marginBottom: 16 }}>Menú semana siguiente</h3>
-                <WeekCalendar menu={nextWeekResult.menu} activityByDay={{}} />
+                <WeekCalendar
+                  menu={nextWeekResult.menu}
+                  activityByDay={{}}
+                  allMeals={allMeals}
+                  week="next"
+                  onMealChange={(day, mealType, mealName) =>
+                    setNextWeekResult(prev => prev ? {
+                      ...prev,
+                      menu: { ...prev.menu, [day]: { ...prev.menu[day], [mealType]: mealName } }
+                    } : prev)
+                  }
+                />
               </div>
               <ShoppingList shoppingList={nextWeekResult.shopping_list} supermarket={nextWeekResult.supermarket} budgetSummary={nextWeekResult.budget_summary} />
             </div>

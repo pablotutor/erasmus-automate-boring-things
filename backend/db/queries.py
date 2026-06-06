@@ -229,6 +229,22 @@ def update_menu(week_start: date, menu_data: dict, shopping_list: dict) -> bool:
         return result.rowcount > 0
 
 
+def patch_menu_meal(week: str, day: str, meal_type: str, meal_name: str) -> bool:
+    if week == "current":
+        current = get_current_week_menu()
+        week_start = _this_monday()
+    else:
+        current = get_next_week_menu()
+        week_start = _this_monday() + timedelta(days=7)
+    if not current:
+        return False
+    menu = current["menu"]
+    if day not in menu:
+        menu[day] = {}
+    menu[day][meal_type] = meal_name
+    return update_menu(week_start, menu, current["shopping_list"])
+
+
 def get_deals() -> dict:
     with engine.connect() as conn:
         result = conn.execute(
