@@ -220,6 +220,21 @@ def get_deals() -> dict:
         return {row.supermarket: row.raw_text for row in result}
 
 
+def get_valid_deals_meta() -> list[dict]:
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                SELECT DISTINCT ON (supermarket) supermarket, expires_at, uploaded_at,
+                       length(raw_text) AS chars
+                FROM weekly_deals
+                WHERE expires_at >= :today
+                ORDER BY supermarket, uploaded_at DESC
+            """),
+            {"today": date.today()},
+        )
+        return [dict(row._mapping) for row in result]
+
+
 def get_all_deals() -> list[dict]:
     with engine.connect() as conn:
         result = conn.execute(

@@ -22,7 +22,7 @@ from llm import get_llm
 from db.queries import (
     get_all_meals, create_meal, update_meal, delete_meal,
     get_pantry, update_pantry,
-    save_deals, get_deals, clear_deals,
+    save_deals, get_deals, get_valid_deals_meta, clear_deals,
     save_menu, get_current_week_menu, get_next_week_menu,
     get_node_logs,
 )
@@ -223,7 +223,7 @@ async def upload_pdf(supermarket: str, file: UploadFile = File(...), expires_at:
 
 @app.get("/api/deals")
 async def list_deals():
-    return get_deals()
+    return get_valid_deals_meta()
 
 
 @app.delete("/api/deals")

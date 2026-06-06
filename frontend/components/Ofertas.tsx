@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 const BASE = "http://localhost:8000";
 
@@ -10,6 +10,13 @@ const SUPERS = [
   { id: "penny", name: "Penny", type: "pdf"    as const },
   { id: "spar",  name: "Spar",  type: "pdf"    as const },
 ];
+
+type DealMeta = {
+  supermarket: string;
+  expires_at: string;
+  uploaded_at: string;
+  chars: number;
+};
 
 type Status = { type: "ok" | "error" | "loading"; msg: string };
 
@@ -65,7 +72,6 @@ function SuperCard({ s }: { s: typeof SUPERS[number] }) {
       background: "#fff", border: "1px solid var(--border)",
       borderRadius: 12, overflow: "hidden",
     }}>
-      {/* Image placeholder */}
       <div style={{
         width: "100%", height: 140, background: "#F3F4F6",
         display: "flex", alignItems: "center", justifyContent: "center",
@@ -154,11 +160,74 @@ function SuperCard({ s }: { s: typeof SUPERS[number] }) {
   );
 }
 
+function DealCard({ deal }: { deal: DealMeta }) {
+  const superName = SUPERS.find(s => s.id === deal.supermarket)?.name ?? deal.supermarket;
+  const expiresDate = new Date(deal.expires_at + "T00:00:00");
+  const uploadedDate = new Date(deal.uploaded_at);
+  const kb = Math.round(deal.chars / 100) / 10;
+
+  const fmtDay = (d: Date) =>
+    d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" });
+
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #D1FAE5",
+      borderRadius: 12, overflow: "hidden",
+    }}>
+      <div style={{
+        width: "100%", height: 6, background: "#10B981",
+      }} />
+      <div style={{ padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+          <h3 style={{
+            fontFamily: "'DM Serif Display', serif",
+            fontSize: 22, color: "#1C1917",
+          }}>{superName}</h3>
+          <span style={{
+            fontSize: 10, color: "#059669", background: "#ECFDF5",
+            padding: "2px 8px", borderRadius: 999, fontWeight: 600,
+          }}>Activa</span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#78716C" }}>
+            <span>Válida hasta</span>
+            <span style={{ color: "#374151", fontWeight: 500 }}>{fmtDay(expiresDate)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#78716C" }}>
+            <span>Actualizada</span>
+            <span style={{ color: "#374151", fontWeight: 500 }}>{fmtDay(uploadedDate)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#78716C" }}>
+            <span>Tamaño</span>
+            <span style={{ color: "#374151", fontWeight: 500 }}>{kb} KB</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Ofertas() {
+  const [validDeals, setValidDeals] = useState<DealMeta[] | null>(null);
+  const [showUpload, setShowUpload] = useState(false);
+
+  useEffect(() => {
+    fetch(`${BASE}/api/deals`)
+      .then(r => r.json())
+      .then((data: DealMeta[]) => setValidDeals(data))
+      .catch(() => setValidDeals([]));
+  }, []);
+
   async function handleClearAll() {
     if (!window.confirm("¿Limpiar todas las ofertas de esta semana?")) return;
     await fetch(`${BASE}/api/deals`, { method: "DELETE" });
+    setValidDeals([]);
+    setShowUpload(false);
   }
+
+  const hasDeals = validDeals !== null && validDeals.length > 0;
+  const showingDeals = hasDeals && !showUpload;
 
   return (
     <div>
@@ -167,24 +236,60 @@ export default function Ofertas() {
         marginBottom: 24, gap: 16,
       }}>
         <p style={{ fontSize: 14, color: "#78716C", lineHeight: 1.6, maxWidth: 520 }}>
-          Actualiza los folletos de la semana antes de generar el menú. El agente analizará las
-          ofertas y recomendará en qué supermercado hacer la compra.
+          {showingDeals
+            ? "Hay ofertas vigentes para esta semana. El agente las usará al generar el menú."
+            : "Actualiza los folletos de la semana antes de generar el menú. El agente analizará las ofertas y recomendará en qué supermercado hacer la compra."
+          }
         </p>
-        <button
-          onClick={handleClearAll}
-          style={{
-            flexShrink: 0, fontSize: 12, color: "#A8A29E",
-            background: "none", border: "none", cursor: "pointer", textDecoration: "underline",
-          }}
-        >Limpiar semana</button>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          {showingDeals && (
+            <button
+              onClick={() => setShowUpload(true)}
+              style={{
+                fontSize: 12, color: "#1C1917",
+                background: "none", border: "1px solid var(--border)",
+                borderRadius: 6, padding: "4px 10px",
+                cursor: "pointer",
+              }}
+            >Actualizar ofertas</button>
+          )}
+          {showUpload && (
+            <button
+              onClick={() => setShowUpload(false)}
+              style={{
+                fontSize: 12, color: "#78716C",
+                background: "none", border: "none", cursor: "pointer",
+                textDecoration: "underline",
+              }}
+            >← Ver estado</button>
+          )}
+          <button
+            onClick={handleClearAll}
+            style={{
+              fontSize: 12, color: "#A8A29E",
+              background: "none", border: "none", cursor: "pointer", textDecoration: "underline",
+            }}
+          >Limpiar semana</button>
+        </div>
       </div>
 
-      <div style={{
-        display: "grid", gridTemplateColumns: "repeat(2, 1fr)",
-        gap: 16, maxWidth: 680,
-      }}>
-        {SUPERS.map(s => <SuperCard key={s.id} s={s} />)}
-      </div>
+      {validDeals === null ? (
+        <p style={{ fontSize: 13, color: "#A8A29E" }}>Comprobando ofertas...</p>
+      ) : showingDeals ? (
+        <div style={{
+          display: "grid", gridTemplateColumns: "repeat(2, 1fr)",
+          gap: 16, maxWidth: 680,
+        }}>
+          {validDeals.map(d => <DealCard key={d.supermarket} deal={d} />)}
+        </div>
+      ) : (
+        <div style={{
+          display: "grid", gridTemplateColumns: "repeat(2, 1fr)",
+          gap: 16, maxWidth: 680,
+        }}>
+          {SUPERS.map(s => <SuperCard key={s.id} s={s} />)}
+        </div>
+      )}
     </div>
   );
 }
