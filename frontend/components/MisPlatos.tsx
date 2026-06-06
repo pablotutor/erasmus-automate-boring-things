@@ -15,6 +15,15 @@ interface Meal {
   image_url: string | null;
 }
 
+interface MealSuggestion {
+  name: string;
+  meal_types: string[];
+  ingredients: string[];
+  tags: string[];
+  prep_time: number | null;
+  description: string;
+}
+
 const TAG_META: Record<string, { label: string; bg: string; color: string }> = {
   gym:           { label: "gym",      bg: "#FEF3EB", color: "#C2500E" },
   quick:         { label: "rápido",   bg: "#EFF6FF", color: "#1D4ED8" },
@@ -190,7 +199,7 @@ function MealFormModal({ initial, onClose, onSave }: {
   onClose: () => void;
   onSave: (meal: Meal) => void;
 }) {
-  const isEdit = !!initial;
+  const isEdit = !!initial?.id;
   const [form, setForm] = useState<FormState>({
     name:        initial?.name        ?? "",
     meal_types:  initial?.meal_types  ?? ["lunch"],
@@ -204,6 +213,7 @@ function MealFormModal({ initial, onClose, onSave }: {
     initial?.image_url ? `${BASE}${initial.image_url}` : null
   );
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(initial?.image_url ?? null);
+  const [sessionGeneratedUrl, setSessionGeneratedUrl] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -223,11 +233,28 @@ function MealFormModal({ initial, onClose, onSave }: {
     if (file) setImagePreview(URL.createObjectURL(file));
   }
 
+  async function deleteGeneratedImage(url: string) {
+    const filename = url.split("/").pop();
+    if (filename?.startsWith("gen_")) {
+      await fetch(`${BASE}/api/meals/generated-image/${filename}`, { method: "DELETE" });
+    }
+  }
+
+  async function handleClose() {
+    if (sessionGeneratedUrl) {
+      await deleteGeneratedImage(sessionGeneratedUrl);
+    }
+    onClose();
+  }
+
   async function handleGenerateImage() {
     if (!form.name.trim()) return;
     setGenerating(true);
     setError(null);
     try {
+      if (sessionGeneratedUrl) {
+        await deleteGeneratedImage(sessionGeneratedUrl);
+      }
       const res = await fetch(`${BASE}/api/meals/generate-image`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -240,6 +267,7 @@ function MealFormModal({ initial, onClose, onSave }: {
       const { image_url } = await res.json();
       setImagePreview(`${BASE}${image_url}`);
       setGeneratedImageUrl(image_url);
+      setSessionGeneratedUrl(image_url);
       setImageFile(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -313,7 +341,7 @@ function MealFormModal({ initial, onClose, onSave }: {
 
   return (
     <div
-      onClick={e => e.target === e.currentTarget && onClose()}
+      onClick={e => e.target === e.currentTarget && handleClose()}
       style={{
         position: "fixed", inset: 0, background: "rgba(28,25,23,0.5)",
         display: "flex", alignItems: "center", justifyContent: "center",
@@ -329,7 +357,7 @@ function MealFormModal({ initial, onClose, onSave }: {
           <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: "#1C1917" }}>
             {isEdit ? "Editar plato" : "Nuevo plato"}
           </h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#A8A29E", lineHeight: 1 }}>×</button>
+          <button onClick={handleClose} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#A8A29E", lineHeight: 1 }}>×</button>
         </div>
 
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -442,7 +470,7 @@ function MealFormModal({ initial, onClose, onSave }: {
           )}
 
           <div style={{ display: "flex", gap: 8, paddingTop: 8 }}>
-            <button type="button" onClick={onClose} style={{
+            <button type="button" onClick={handleClose} style={{
               flex: 1, padding: 10, borderRadius: 7,
               border: "1px solid var(--border)", background: "#FAFAF7",
               color: "#78716C", fontSize: 13, cursor: "pointer",
@@ -460,6 +488,102 @@ function MealFormModal({ initial, onClose, onSave }: {
   );
 }
 
+// ── Suggest Modal ─────────────────────────────────────────────────────────────
+
+function SuggestModal({ onClose, onSelect }: {
+  onClose: () => void;
+  onSelect: (s: MealSuggestion) => void;
+}) {
+  const [suggestions, setSuggestions] = useState<MealSuggestion[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${BASE}/api/meals/suggest`, { method: "POST" })
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(data => setSuggestions(data))
+      .catch(() => setError("No se pudieron generar sugerencias. Inténtalo de nuevo."));
+  }, []);
+
+  return (
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(28,25,23,0.5)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000, padding: 20,
+      }}
+    >
+      <div style={{
+        background: "#fff", borderRadius: 14, width: "100%", maxWidth: 520,
+        padding: 28, boxShadow: "0 24px 48px rgba(0,0,0,0.18)",
+        maxHeight: "90vh", overflowY: "auto",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: "#1C1917" }}>
+            Sugerencias de la IA
+          </h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#A8A29E", lineHeight: 1 }}>×</button>
+        </div>
+        <p style={{ fontSize: 13, color: "#78716C", marginBottom: 20 }}>
+          Selecciona un plato para añadirlo a tu recetario. Podrás editar todos los campos antes de guardar.
+        </p>
+
+        {!suggestions && !error && (
+          <div style={{ textAlign: "center", padding: "40px 0", color: "#A8A29E" }}>
+            <div style={{ fontSize: 28, marginBottom: 10 }}>✨</div>
+            <p style={{ fontSize: 14 }}>Generando sugerencias personalizadas...</p>
+          </div>
+        )}
+
+        {error && (
+          <p style={{ color: "#DC2626", fontSize: 14, textAlign: "center", padding: "20px 0" }}>{error}</p>
+        )}
+
+        {suggestions && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => onSelect(s)}
+                style={{
+                  textAlign: "left", background: "#FAFAF7", border: "1px solid var(--border)",
+                  borderRadius: 10, padding: "14px 16px", cursor: "pointer",
+                  transition: "border-color 0.15s, box-shadow 0.15s",
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--accent)";
+                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
+                  (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15, color: "#1C1917" }}>{s.name}</span>
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8 }}>
+                    {s.meal_types.map(t => <TypeBadge key={t} type={t} />)}
+                  </div>
+                </div>
+                <p style={{ fontSize: 13, color: "#78716C", margin: "4px 0 8px" }}>{s.description}</p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  {s.prep_time && (
+                    <span style={{ fontSize: 11, color: "#A8A29E" }}>⏱ {s.prep_time} min</span>
+                  )}
+                  {s.tags.map(t => <TagPill key={t} tag={t} />)}
+                </div>
+                <p style={{ fontSize: 12, color: "#A8A29E", marginTop: 6 }}>
+                  {s.ingredients.slice(0, 5).join(", ")}{s.ingredients.length > 5 ? "..." : ""}
+                </p>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main MisPlatos ────────────────────────────────────────────────────────────
 
 const FILTERS = [
@@ -472,7 +596,8 @@ const FILTERS = [
 export default function MisPlatos() {
   const [meals, setMeals]   = useState<Meal[]>([]);
   const [filter, setFilter] = useState<"all" | "breakfast" | "lunch" | "dinner">("all");
-  const [modal, setModal]   = useState<"add" | Meal | null>(null);
+  const [modal, setModal]   = useState<"add" | "suggest" | Meal | null>(null);
+  const [prefill, setPrefill] = useState<MealSuggestion | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -534,12 +659,20 @@ export default function MisPlatos() {
             </button>
           ))}
         </div>
-        <button onClick={() => setModal("add")} style={{
-          display: "flex", alignItems: "center", gap: 6,
-          padding: "8px 16px", borderRadius: 8, border: "none",
-          background: "var(--accent)", color: "#fff", fontSize: 13,
-          fontWeight: 600, cursor: "pointer",
-        }}>+ Añadir plato</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setModal("suggest")} style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "8px 16px", borderRadius: 8, fontSize: 13,
+            fontWeight: 600, cursor: "pointer",
+            border: "1.5px solid var(--accent)", background: "#fff", color: "var(--accent)",
+          }}>✨ Sugerir con IA</button>
+          <button onClick={() => { setPrefill(null); setModal("add"); }} style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "8px 16px", borderRadius: 8, border: "none",
+            background: "var(--accent)", color: "#fff", fontSize: 13,
+            fontWeight: 600, cursor: "pointer",
+          }}>+ Añadir manualmente</button>
+        </div>
       </div>
 
       {loading ? (
@@ -571,10 +704,21 @@ export default function MisPlatos() {
         </div>
       )}
 
-      {modal && (
-        <MealFormModal
-          initial={modal === "add" ? undefined : modal}
+      {modal === "suggest" && (
+        <SuggestModal
           onClose={() => setModal(null)}
+          onSelect={s => { setPrefill(s); setModal("add"); }}
+        />
+      )}
+
+      {modal && modal !== "suggest" && (
+        <MealFormModal
+          initial={
+            modal === "add"
+              ? (prefill ? { ...prefill, id: 0, image_url: null } as Meal : undefined)
+              : modal as Meal
+          }
+          onClose={() => { setModal(null); setPrefill(null); }}
           onSave={handleSave}
         />
       )}

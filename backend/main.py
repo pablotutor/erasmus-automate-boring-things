@@ -103,6 +103,14 @@ class GenerateImageRequest(BaseModel):
     name: str
     ingredients: list[str] = []
 
+class MealSuggestion(BaseModel):
+    name: str
+    meal_types: list[str]
+    ingredients: list[str]
+    tags: list[str]
+    prep_time: Optional[int] = None
+    description: str
+
 class AdjustRequest(BaseModel):
     menu: dict
     shopping_list: dict = {}
@@ -295,6 +303,92 @@ async def generate_meal_image(req: GenerateImageRequest):
     image.save(dest)
 
     return {"image_url": f"/static/uploads/meals/{filename}"}
+
+
+@app.delete("/api/meals/generated-image/{filename}")
+async def delete_generated_image(filename: str):
+    if not filename.startswith("gen_"):
+        raise HTTPException(status_code=400, detail="Solo se pueden borrar imágenes generadas")
+    file_path = UPLOADS_DIR / filename
+    if file_path.exists():
+        file_path.unlink()
+    return {"ok": True}
+
+
+@app.post("/api/meals/suggest", response_model=list[MealSuggestion])
+async def suggest_meals():
+    import json as _json
+
+    meals = get_all_meals()
+    pantry = get_pantry()
+    recent_menu = get_current_week_menu() or get_next_week_menu()
+
+    meal_names = [m["name"] for m in meals] if meals else []
+    pantry_items = [p["item_name"] for p in pantry if p.get("sufficient")] if pantry else []
+
+    context_parts = []
+    if recent_menu:
+        ctx = recent_menu.get("context", {})
+        budget = recent_menu.get("budget_summary", {}).get("budget")
+        if budget:
+            context_parts.append(f"Presupuesto semanal: {budget}€")
+        sport_days = []
+        if ctx.get("calistenia_days"):
+            sport_days.append(f"calistenia {len(ctx['calistenia_days'])} días/semana")
+        if ctx.get("running_days"):
+            sport_days.append(f"running {len(ctx['running_days'])} días/semana")
+        if ctx.get("football_days"):
+            sport_days.append(f"fútbol {len(ctx['football_days'])} días/semana")
+        if sport_days:
+            context_parts.append("Deporte: " + ", ".join(sport_days))
+        if ctx.get("notes"):
+            context_parts.append(f"Notas del usuario: {ctx['notes']}")
+
+    prompt = f"""Eres un asistente de cocina para un estudiante Erasmus. Sugiere 4 platos nuevos y variados para añadir a su recetario personal.
+
+PLATOS QUE YA TIENE GUARDADOS:
+{", ".join(meal_names) if meal_names else "Ninguno todavía"}
+
+INGREDIENTES EN SU DESPENSA:
+{", ".join(pantry_items) if pantry_items else "Sin información"}
+
+CONTEXTO DEL USUARIO:
+{chr(10).join(context_parts) if context_parts else "Sin contexto adicional"}
+
+INSTRUCCIONES:
+- Sugiere exactamente 4 platos que NO estén ya en la lista de platos guardados
+- Varía los tipos: incluye mezcla de desayuno, comida y cena
+- Considera ingredientes económicos y fáciles de conseguir para un estudiante
+- Para meal_types usa solo estos valores: "breakfast", "lunch", "dinner"
+- Para tags usa solo estos valores (pueden ser varios): "gym", "quick", "cheap", "batch-cook", "travel"
+- prep_time en minutos (entero, puede ser null)
+- description: una frase breve y apetecible
+
+Responde SOLO con JSON válido, sin texto adicional, con esta estructura exacta:
+[
+  {{
+    "name": "...",
+    "meal_types": ["lunch"],
+    "ingredients": ["ingrediente1", "ingrediente2"],
+    "tags": ["cheap"],
+    "prep_time": 20,
+    "description": "Descripción breve del plato"
+  }}
+]"""
+
+    try:
+        llm = get_llm()
+        response = llm.invoke(prompt)
+        content = response.content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+        suggestions = _json.loads(content)
+        return [MealSuggestion(**s) for s in suggestions[:4]]
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error al generar sugerencias: {e}")
 
 
 @app.delete("/api/meals/{meal_id}")
