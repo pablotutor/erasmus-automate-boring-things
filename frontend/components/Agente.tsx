@@ -437,7 +437,7 @@ export default function Agente() {
       const res = await fetch(`${BASE}/api/generate/adjust`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ menu: nextWeekResult.menu, shopping_list: nextWeekResult.shopping_list, change_request: adjustText }),
+        body: JSON.stringify({ menu: nextWeekResult.menu, shopping_list: nextWeekResult.shopping_list, change_request: adjustText, week_target: "next" }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();

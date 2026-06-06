@@ -206,6 +206,29 @@ def save_menu(
         conn.commit()
 
 
+def update_menu(week_start: date, menu_data: dict, shopping_list: dict) -> bool:
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                UPDATE weekly_menus
+                SET menu_data = :menu_data, shopping_list = :shopping_list
+                WHERE id = (
+                    SELECT id FROM weekly_menus
+                    WHERE week_start >= :ws AND week_start < :ws_end
+                    ORDER BY created_at DESC LIMIT 1
+                )
+            """),
+            {
+                "menu_data": json.dumps(menu_data, ensure_ascii=False),
+                "shopping_list": json.dumps(shopping_list, ensure_ascii=False),
+                "ws": week_start,
+                "ws_end": week_start + timedelta(days=7),
+            },
+        )
+        conn.commit()
+        return result.rowcount > 0
+
+
 def get_deals() -> dict:
     with engine.connect() as conn:
         result = conn.execute(

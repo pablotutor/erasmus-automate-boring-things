@@ -23,7 +23,7 @@ from db.queries import (
     get_all_meals, create_meal, update_meal, delete_meal,
     get_pantry, update_pantry,
     save_deals, get_deals, get_valid_deals_meta, clear_deals,
-    save_menu, get_current_week_menu, get_next_week_menu,
+    save_menu, update_menu, get_current_week_menu, get_next_week_menu,
     get_node_logs,
 )
 
@@ -107,6 +107,7 @@ class AdjustRequest(BaseModel):
     menu: dict
     shopping_list: dict = {}
     change_request: str = Field(max_length=500)
+    week_target: str = "next"
 
 
 # ── Graph endpoints ──────────────────────────────────────────────────────────
@@ -363,9 +364,16 @@ async def adjust_menu(req: AdjustRequest):
         if content.startswith("json"):
             content = content[4:]
     try:
-        return _json.loads(content)
+        data = _json.loads(content)
     except Exception:
         raise HTTPException(status_code=422, detail="El modelo no devolvió un JSON válido.")
+
+    today = date.today()
+    this_monday = today - timedelta(days=today.weekday())
+    week_start = this_monday if req.week_target == "current" else this_monday + timedelta(days=7)
+    update_menu(week_start, data.get("menu", {}), data.get("shopping_list", {}))
+
+    return data
 
 
 # ── Menus endpoints ───────────────────────────────────────────────────────────
