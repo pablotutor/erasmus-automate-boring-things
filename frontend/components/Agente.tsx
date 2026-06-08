@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { fetchMeals, patchMenuMeal } from "../lib/api";
 
 const BASE = "http://localhost:8000";
@@ -476,16 +476,34 @@ function LoadingPanel({ step }: { step: string }) {
   );
 }
 
+// ── Per-week config ──────────────────────────────────────────────────────────
+
+interface WeekConfig {
+  budget: number;
+  calisteniaDays: string[];
+  runningDays: string[];
+  footballDays: string[];
+  travelDays: string[];
+  notes: string;
+}
+
+const defaultConfig = (): WeekConfig => ({
+  budget: 50,
+  calisteniaDays: [],
+  runningDays: [],
+  footballDays: [],
+  travelDays: [],
+  notes: "",
+});
+
 // ── Main Agente component ────────────────────────────────────────────────────
 
 export default function Agente() {
-  const [budget, setBudget]                   = useState(50);
-  const [calisteniaDays, setCalisteniaDays]   = useState<string[]>([]);
-  const [runningDays, setRunningDays]         = useState<string[]>([]);
-  const [footballDays, setFootballDays]       = useState<string[]>([]);
-  const [travelDays, setTravelDays]           = useState<string[]>([]);
+  const [configs, setConfigs] = useState<Record<"current" | "next", WeekConfig>>({
+    current: defaultConfig(),
+    next:    defaultConfig(),
+  });
   const [pantry, setPantry]                   = useState("");
-  const [notes, setNotes]                     = useState("");
   const [loading, setLoading]                 = useState(false);
   const [loadingStep, setLoadingStep]         = useState("");
   const [result, setResult]                   = useState<Result | null>(null);
@@ -499,10 +517,23 @@ export default function Agente() {
   const [adjustLoading, setAdjustLoading]     = useState(false);
   const [allMeals, setAllMeals]               = useState<Meal[]>([]);
 
-  // Maps day → list of activity labels for the calendar
-  const [activityByDay, setActivityByDay]     = useState<Record<string, string[]>>({});
+  // Config activa según la pestaña seleccionada
+  const cfg = configs[activeView];
+  const setCfg = (updates: Partial<WeekConfig>) =>
+    setConfigs(prev => ({ ...prev, [activeView]: { ...prev[activeView], ...updates } }));
 
-  const sportDays = Array.from(new Set([...calisteniaDays, ...runningDays, ...footballDays]));
+  const sportDays = Array.from(new Set([...cfg.calisteniaDays, ...cfg.runningDays, ...cfg.footballDays]));
+
+  // Etiquetas de actividad por día: reactivas a la config de la semana activa
+  const activityByDay = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    const push = (day: string, act: string) => { map[day] = map[day] ? [...map[day], act] : [act]; };
+    cfg.calisteniaDays.forEach(d => push(d, "calistenia"));
+    cfg.runningDays.forEach(d =>    push(d, "running"));
+    cfg.footballDays.forEach(d =>   push(d, "fútbol"));
+    cfg.travelDays.forEach(d =>     push(d, "viaje"));
+    return map;
+  }, [cfg.calisteniaDays, cfg.runningDays, cfg.footballDays, cfg.travelDays]);
 
   // Carga menús de esta semana y la siguiente al montar, y catálogo de platos
   useEffect(() => {
@@ -515,18 +546,36 @@ export default function Agente() {
         setResult(normalizeMenu(cur));
         setLoadedFromCache(true);
         setResultWeek("current");
+        // Restaurar configuración guardada al formulario de esta semana
         const ctx = cur.context || {};
-        const actMap: Record<string, string[]> = {};
-        const push = (day: string, act: string) => { actMap[day] = actMap[day] ? [...actMap[day], act] : [act]; };
-        (ctx.calistenia_days ?? []).forEach((d: string) => push(d, "calistenia"));
-        (ctx.running_days    ?? []).forEach((d: string) => push(d, "running"));
-        (ctx.football_days   ?? []).forEach((d: string) => push(d, "fútbol"));
-        (ctx.travel_days     ?? []).forEach((d: string) => push(d, "viaje"));
-        setActivityByDay(actMap);
+        setConfigs(prev => ({
+          ...prev,
+          current: {
+            budget:         cur.budget           ?? prev.current.budget,
+            calisteniaDays: ctx.calistenia_days  ?? prev.current.calisteniaDays,
+            runningDays:    ctx.running_days     ?? prev.current.runningDays,
+            footballDays:   ctx.football_days    ?? prev.current.footballDays,
+            travelDays:     ctx.travel_days      ?? prev.current.travelDays,
+            notes:          ctx.notes            ?? prev.current.notes,
+          },
+        }));
       }
       if (nxt?.menu) {
         setNextWeekResult(normalizeMenu(nxt));
         setActiveView("next");
+        // Restaurar configuración guardada al formulario de la semana siguiente
+        const nctx = nxt.context || {};
+        setConfigs(prev => ({
+          ...prev,
+          next: {
+            budget:         nxt.budget           ?? prev.next.budget,
+            calisteniaDays: nctx.calistenia_days ?? prev.next.calisteniaDays,
+            runningDays:    nctx.running_days    ?? prev.next.runningDays,
+            footballDays:   nctx.football_days   ?? prev.next.footballDays,
+            travelDays:     nctx.travel_days     ?? prev.next.travelDays,
+            notes:          nctx.notes           ?? prev.next.notes,
+          },
+        }));
       }
     });
   }, []);
@@ -537,17 +586,6 @@ export default function Agente() {
     setResult(null);
     setLoadedFromCache(false);
     setError(null);
-
-    // Build activity map — multiple activities can share a day
-    const actMap: Record<string, string[]> = {};
-    const push = (day: string, act: string) => {
-      actMap[day] = actMap[day] ? [...actMap[day], act] : [act];
-    };
-    calisteniaDays.forEach(d => push(d, "calistenia"));
-    runningDays.forEach(d =>    push(d, "running"));
-    footballDays.forEach(d =>   push(d, "fútbol"));
-    travelDays.forEach(d =>     push(d, "viaje"));
-    setActivityByDay(actMap);
 
     // Animate loading steps while awaiting
     let stepIdx = 0;
@@ -563,12 +601,12 @@ export default function Agente() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          budget,
-          calistenia_days: calisteniaDays,
-          running_days: runningDays,
-          football_days: footballDays,
-          travel_days: travelDays,
-          notes: notes.trim() || null,
+          budget:          cfg.budget,
+          calistenia_days: cfg.calisteniaDays,
+          running_days:    cfg.runningDays,
+          football_days:   cfg.footballDays,
+          travel_days:     cfg.travelDays,
+          notes:           cfg.notes.trim() || null,
           week_target: target,
         }),
       });
@@ -657,11 +695,11 @@ export default function Agente() {
               color: "var(--accent)",
               fontFamily: "'DM Serif Display', serif",
               fontSize: 17, textTransform: "none", letterSpacing: 0,
-            }}>€{budget}</span>
+            }}>€{cfg.budget}</span>
           </label>
           <input
-            type="range" min={10} max={150} step={5} value={budget}
-            onChange={e => setBudget(+e.target.value)}
+            type="range" min={10} max={150} step={5} value={cfg.budget}
+            onChange={e => setCfg({ budget: +e.target.value })}
             style={{ width: "100%", accentColor: "var(--accent)" }}
           />
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#A8A29E", marginTop: 2 }}>
@@ -690,24 +728,24 @@ export default function Agente() {
             <span style={{ fontSize: 11, color: "#78716C" }}>Calistenia</span>
             {WEEK_DAYS.map(d => (
               <DayToggle key={d.value} dayVal={d.value}
-                selected={calisteniaDays} onChange={setCalisteniaDays}
-                disabled={travelDays} />
+                selected={cfg.calisteniaDays} onChange={val => setCfg({ calisteniaDays: val })}
+                disabled={cfg.travelDays} />
             ))}
 
             {/* Running */}
             <span style={{ fontSize: 11, color: "#78716C" }}>Running</span>
             {WEEK_DAYS.map(d => (
               <DayToggle key={d.value} dayVal={d.value}
-                selected={runningDays} onChange={setRunningDays}
-                disabled={travelDays} />
+                selected={cfg.runningDays} onChange={val => setCfg({ runningDays: val })}
+                disabled={cfg.travelDays} />
             ))}
 
             {/* Fútbol */}
             <span style={{ fontSize: 11, color: "#78716C" }}>Fútbol</span>
             {WEEK_DAYS.map(d => (
               <DayToggle key={d.value} dayVal={d.value}
-                selected={footballDays} onChange={setFootballDays}
-                disabled={travelDays} />
+                selected={cfg.footballDays} onChange={val => setCfg({ footballDays: val })}
+                disabled={cfg.travelDays} />
             ))}
 
             {/* Divider */}
@@ -717,18 +755,18 @@ export default function Agente() {
             <span style={{ fontSize: 11, color: "#78716C" }}>Viaje</span>
             {WEEK_DAYS.map(d => {
               const dis = sportDays.includes(d.value);
-              const sel = travelDays.includes(d.value);
+              const sel = cfg.travelDays.includes(d.value);
               return (
                 <button key={d.value} type="button" disabled={dis}
                   onClick={() => {
                     const adding = !sel;
-                    const next = adding ? [...travelDays, d.value] : travelDays.filter(x => x !== d.value);
-                    setTravelDays(next);
-                    if (adding) {
-                      setCalisteniaDays(p => p.filter(x => x !== d.value));
-                      setRunningDays(p => p.filter(x => x !== d.value));
-                      setFootballDays(p => p.filter(x => x !== d.value));
-                    }
+                    const nextTravel = adding ? [...cfg.travelDays, d.value] : cfg.travelDays.filter(x => x !== d.value);
+                    setCfg({
+                      travelDays:     nextTravel,
+                      calisteniaDays: adding ? cfg.calisteniaDays.filter(x => x !== d.value) : cfg.calisteniaDays,
+                      runningDays:    adding ? cfg.runningDays.filter(x => x !== d.value)    : cfg.runningDays,
+                      footballDays:   adding ? cfg.footballDays.filter(x => x !== d.value)   : cfg.footballDays,
+                    });
                   }}
                   style={{
                     height: 26, borderRadius: 4, padding: 0,
@@ -761,8 +799,8 @@ export default function Agente() {
             <span style={{ textTransform: "none", fontWeight: 400, color: "#A8A29E" }}>(opcional)</span>
           </label>
           <textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
+            value={cfg.notes}
+            onChange={e => setCfg({ notes: e.target.value })}
             placeholder="sin pescado esta semana..."
             style={{ ...inp, height: 50 } as React.CSSProperties}
           />
@@ -778,14 +816,14 @@ export default function Agente() {
         ) : activeView === "current" && result ? (
           <button
             type="button"
-            onClick={e => { setActiveView("next"); generate(e as unknown as React.FormEvent, "next"); }}
+            onClick={() => setActiveView("next")}
             style={{
               padding: 11, borderRadius: 8, border: "none",
               background: "#1C1917", color: "#fff",
               fontSize: 13, fontWeight: 600, cursor: "pointer",
               letterSpacing: "0.02em",
             }}
-          >→  Generar semana siguiente</button>
+          >→  Planificar semana siguiente</button>
         ) : activeView === "next" && nextWeekResult ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <label style={lbl}>Cambiar algo del menú</label>
@@ -905,7 +943,7 @@ export default function Agente() {
                 <h3 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 18, color: "#1C1917", marginBottom: 16 }}>Menú semana siguiente</h3>
                 <WeekCalendar
                   menu={nextWeekResult.menu}
-                  activityByDay={{}}
+                  activityByDay={activityByDay}
                   allMeals={allMeals}
                   week="next"
                   onMealChange={(day, mealType, mealName) =>
